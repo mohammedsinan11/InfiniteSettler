@@ -1,0 +1,118 @@
+/**
+ * Serialisierung des Weltzustands.
+ *
+ * Wird doppelt gebraucht: zum Speichern und als Grundlage des
+ * Zustands-Hashes. Deshalb muss die Ausgabe bei gleichem Zustand
+ * BYTEGLEICH sein - alle Sammlungen werden sortiert ausgegeben, nicht in
+ * Einfuegereihenfolge. Sonst wuerden zwei identische Welten
+ * unterschiedliche Hashes liefern.
+ */
+
+import { ChunkStore } from './chunks';
+import { tileKey } from './coords';
+import { fnv1a, hex8 } from './hash';
+import { Rng } from './rng';
+import type { World, WorldState } from './state';
+import type { Tile } from './terrain';
+import type { Building, Carrier } from './types';
+
+export const SNAPSHOT_VERSION = 1;
+
+export interface Snapshot {
+  v: number;
+  seed: number;
+  tick: number;
+  nextId: number;
+  rng: number;
+  terrain: Array<[string, number]>;
+  roads: string[];
+  buildings: Building[];
+  carriers: Carrier[];
+}
+
+const byId = (a: { id: number }, b: { id: number }): number => a.id - b.id;
+
+export function serialize(world: World): Snapshot {
+  const s = world.state;
+  return {
+    v: SNAPSHOT_VERSION,
+    seed: s.seed,
+    tick: s.tick,
+    nextId: s.nextId,
+    rng: world.rng.getState(),
+    terrain: Array.from(s.terrainOverride.entries())
+      .map(([k, t]) => [k, t as number] as [string, number])
+      .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)),
+    roads: Array.from(s.roads).sort(),
+    buildings: Array.from(s.buildings.values())
+      .map(cloneBuilding)
+      .sort(byId),
+    carriers: Array.from(s.carriers.values()).map(cloneCarrier).sort(byId),
+  };
+}
+
+export function deserialize(snap: Snapshot): World {
+  if (snap.v !== SNAPSHOT_VERSION) {
+    throw new Error('Unbekannte Spielstandsversion: ' + snap.v);
+  }
+
+  const state: WorldState = {
+    seed: snap.seed | 0,
+    tick: snap.tick | 0,
+    nextId: snap.nextId | 0,
+    terrainOverride: new Map(snap.terrain.map(([k, t]) => [k, t as Tile])),
+    roads: new Set(snap.roads),
+    buildings: new Map(),
+    buildingAt: new Map(),
+    carriers: new Map(),
+  };
+
+  for (const b of snap.buildings) {
+    const copy = cloneBuilding(b);
+    state.buildings.set(copy.id, copy);
+    // buildingAt ist ein reiner Index und wird beim Laden neu aufgebaut,
+    // statt ihn redundant mitzuspeichern.
+    state.buildingAt.set(tileKey(copy.x, copy.y), copy.id);
+  }
+  for (const c of snap.carriers) {
+    const copy = cloneCarrier(c);
+    state.carriers.set(copy.id, copy);
+  }
+
+  const rng = new Rng(snap.seed | 0);
+  rng.setState(snap.rng | 0);
+
+  return { state, chunks: new ChunkStore(snap.seed | 0), rng, dirty: new Set() };
+}
+
+const cloneBuilding = (b: Building): Building => ({
+  id: b.id,
+  type: b.type,
+  x: b.x,
+  y: b.y,
+  progress: b.progress,
+  input: b.input.slice(),
+  output: b.output.slice(),
+  reserved: b.reserved.slice(),
+  incoming: b.incoming.slice(),
+});
+
+const cloneCarrier = (c: Carrier): Carrier => ({
+  id: c.id,
+  x: c.x,
+  y: c.y,
+  path: c.path.slice(),
+  pathIdx: c.pathIdx,
+  state: c.state,
+  carrying: c.carrying,
+  jobGood: c.jobGood,
+  jobFrom: c.jobFrom,
+  jobTo: c.jobTo,
+});
+
+/** Fingerabdruck des Weltzustands. Zwei Clients mit gleichem Hash sind synchron. */
+export function hashWorld(world: World): number {
+  return fnv1a(JSON.stringify(serialize(world)));
+}
+
+export const hashWorldHex = (world: World): string => hex8(hashWorld(world));
