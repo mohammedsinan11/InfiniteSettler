@@ -40,26 +40,37 @@ describe('Platzierung', () => {
     expect(canPlaceBuilding(world, BuildingType.Harbor, 12, 0)).toBe(false);
   });
 
+  it('verlangt die GANZE Grundflaeche, nicht nur die Ankerkachel', () => {
+    const world = coastWorld();
+    // (9,0) waere frei, aber (10,0) ist Wasser - das Gebaeude staende halb drin.
+    expect(canPlaceBuilding(world, BuildingType.Storehouse, 9, 0)).toBe(false);
+    expect(canPlaceBuilding(world, BuildingType.Storehouse, 8, 0)).toBe(true);
+  });
+
   it('laesst den Hafen nur mit angrenzendem Wasser zu', () => {
     const world = coastWorld();
-    expect(canPlaceBuilding(world, BuildingType.Harbor, 9, 0)).toBe(true);
-    expect(canPlaceBuilding(world, BuildingType.Harbor, 8, 0)).toBe(false);
+    // Grundflaeche 2x2: (8,0) belegt 8..9 und grenzt damit an das Wasser
+    // ab x=10; (7,0) belegt 7..8 und grenzt nicht an.
+    expect(canPlaceBuilding(world, BuildingType.Harbor, 8, 0)).toBe(true);
+    expect(canPlaceBuilding(world, BuildingType.Harbor, 7, 0)).toBe(false);
     expect(canPlaceBuilding(world, BuildingType.Harbor, 0, 0)).toBe(false);
   });
 
   it('weist den Bau-Command an unzulaessiger Stelle zurueck', () => {
     const world = coastWorld();
-    const ok = applyCommand(world, { t: 'build', bt: BuildingType.Harbor, x: 9, y: 0 });
+    const ok = applyCommand(world, { t: 'build', bt: BuildingType.Harbor, x: 8, y: 0 });
     const nope = applyCommand(world, { t: 'build', bt: BuildingType.Harbor, x: 0, y: 5 });
     expect(ok).toBe(true);
     expect(nope).toBe(false);
     expect(world.state.buildings.size).toBe(1);
   });
 
-  it('belegt keine Kachel doppelt', () => {
+  it('belegt keine Kachel doppelt - auch nicht die Nachbarfelder', () => {
     const world = coastWorld();
-    applyCommand(world, { t: 'build', bt: BuildingType.Harbor, x: 9, y: 0 });
-    expect(canPlaceBuilding(world, BuildingType.Storehouse, 9, 0)).toBe(false);
+    applyCommand(world, { t: 'build', bt: BuildingType.Harbor, x: 8, y: 0 });
+    expect(canPlaceBuilding(world, BuildingType.Storehouse, 8, 0)).toBe(false);
+    // (9,1) gehoert zum Hafen, ueberschneidet sich also mit einem Bau auf (7,0)
+    expect(canPlaceBuilding(world, BuildingType.Storehouse, 7, 1)).toBe(false);
   });
 });
 
@@ -67,8 +78,8 @@ describe('Hafen', () => {
   it('fischt, ohne das Wasser aufzubrauchen', () => {
     const world = coastWorld();
     applyCommand(world, { t: 'build', bt: BuildingType.Storehouse, x: 0, y: 0 });
-    applyCommand(world, { t: 'build', bt: BuildingType.Harbor, x: 9, y: 0 });
-    for (let x = 1; x <= 8; x++) applyCommand(world, { t: 'road', x, y: 0 });
+    applyCommand(world, { t: 'build', bt: BuildingType.Harbor, x: 8, y: 0 });
+    for (let x = 2; x <= 7; x++) applyCommand(world, { t: 'road', x, y: 0 });
 
     const waterBefore = countWater(world);
     for (let i = 0; i < 900; i++) step(world);
@@ -80,7 +91,7 @@ describe('Hafen', () => {
 
   it('versiegt nicht - anders als der Holzfaeller', () => {
     const world = coastWorld();
-    applyCommand(world, { t: 'build', bt: BuildingType.Harbor, x: 9, y: 0 });
+    applyCommand(world, { t: 'build', bt: BuildingType.Harbor, x: 8, y: 0 });
     const harbor = [...world.state.buildings.values()][0];
     for (let i = 0; i < 2000; i++) step(world);
     // Ohne Abtransport laeuft der Puffer voll und bleibt voll.

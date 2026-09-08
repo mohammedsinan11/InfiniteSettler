@@ -14,7 +14,7 @@ import { fnv1a, hex8 } from './hash';
 import { Rng } from './rng';
 import type { World, WorldState } from './state';
 import type { Tile } from './terrain';
-import { GOOD_COUNT, type Building, type Carrier } from './types';
+import { BUILDING_SPECS, GOOD_COUNT, type Building, type Carrier } from './types';
 
 /**
  * Version 2: Die Terraingenerierung wurde ueberarbeitet (Domain Warping,
@@ -80,8 +80,15 @@ export function deserialize(snap: Snapshot): World {
     const copy = cloneBuilding(b);
     state.buildings.set(copy.id, copy);
     // buildingAt ist ein reiner Index und wird beim Laden neu aufgebaut,
-    // statt ihn redundant mitzuspeichern.
-    state.buildingAt.set(tileKey(copy.x, copy.y), copy.id);
+    // statt ihn redundant mitzuspeichern. Dabei muss die GANZE
+    // Grundflaeche eingetragen werden - nur die Ankerkachel zu setzen
+    // gaebe nach dem Laden drei von vier Feldern wieder frei.
+    const n = BUILDING_SPECS[copy.type].footprint;
+    for (let dy = 0; dy < n; dy++) {
+      for (let dx = 0; dx < n; dx++) {
+        state.buildingAt.set(tileKey(copy.x + dx, copy.y + dy), copy.id);
+      }
+    }
   }
   for (const c of snap.carriers) {
     const copy = cloneCarrier(c);

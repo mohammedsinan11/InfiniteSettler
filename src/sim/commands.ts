@@ -12,6 +12,7 @@ import { FP_ONE } from './fixed';
 import {
   buildingIdAt,
   canPlaceBuilding,
+  forEachFootprint,
   makeBuilding,
   type World,
 } from './state';
@@ -87,9 +88,11 @@ function doBuild(
     building.input[Good.Stone] = STARTER_STONE;
   }
   s.buildings.set(id, building);
-  s.buildingAt.set(tileKey(x, y), id);
-  // Ein Gebaeude ist selbst begehbar; die Strasse darunter waere sonst weg.
-  s.roads.delete(tileKey(x, y));
+  forEachFootprint(bt, x, y, (tx, ty) => {
+    s.buildingAt.set(tileKey(tx, ty), id);
+    // Ein Gebaeude ist selbst begehbar; die Strasse darunter waere sonst weg.
+    s.roads.delete(tileKey(tx, ty));
+  });
 
   if (bt === BuildingType.Storehouse) {
     for (let i = 0; i < CARRIERS_PER_STOREHOUSE; i++) {
@@ -135,8 +138,12 @@ function doDemolish(world: World, x: number, y: number): boolean {
 
   const id = buildingIdAt(world, x, y);
   if (id !== undefined) {
+    const b = s.buildings.get(id);
     s.buildings.delete(id);
-    s.buildingAt.delete(key);
+    // Ueber die gespeicherte Ankerposition freigeben, nicht ueber die
+    // angeklickte Kachel - sonst blieben die uebrigen Felder belegt.
+    if (b) forEachFootprint(b.type, b.x, b.y, (tx, ty) => s.buildingAt.delete(tileKey(tx, ty)));
+    else s.buildingAt.delete(key);
     // Laufende Auftraege loesen sich selbst auf: stepCarriers prueft, ob
     // Quelle und Ziel noch existieren.
     return true;

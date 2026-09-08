@@ -114,12 +114,33 @@ export function canPlaceOn(world: World, x: number, y: number): boolean {
   return isBuildable(getTile(world, x, y));
 }
 
-/** Grenzt mindestens eine der vier Nachbarkacheln ans Wasser? */
-export function touchesWater(world: World, x: number, y: number): boolean {
-  for (const [dx, dy] of NEIGHBORS) {
-    if (getTile(world, x + dx, y + dy) === Tile.Water) return true;
+/** Ruft fn fuer jede Kachel der Grundflaeche auf. */
+export function forEachFootprint(
+  type: BuildingType,
+  x: number,
+  y: number,
+  fn: (tx: number, ty: number) => void,
+): void {
+  const n = BUILDING_SPECS[type].footprint;
+  for (let dy = 0; dy < n; dy++) {
+    for (let dx = 0; dx < n; dx++) fn(x + dx, y + dy);
   }
-  return false;
+}
+
+/** Grenzt eine Kachel der Grundflaeche ans Wasser? */
+export function touchesWater(
+  world: World,
+  type: BuildingType,
+  x: number,
+  y: number,
+): boolean {
+  let found = false;
+  forEachFootprint(type, x, y, (tx, ty) => {
+    for (const [dx, dy] of NEIGHBORS) {
+      if (getTile(world, tx + dx, ty + dy) === Tile.Water) found = true;
+    }
+  });
+  return found;
 }
 
 /**
@@ -133,9 +154,18 @@ export function canPlaceBuilding(
   x: number,
   y: number,
 ): boolean {
-  if (!canPlaceOn(world, x, y)) return false;
+  // JEDE Kachel der Grundflaeche muss frei und bebaubar sein - nicht nur
+  // die Ankerkachel, sonst stuende das Gebaeude halb im Wasser.
+  let ok = true;
+  forEachFootprint(type, x, y, (tx, ty) => {
+    if (!canPlaceOn(world, tx, ty)) ok = false;
+  });
+  if (!ok) return false;
+
   const spec = BUILDING_SPECS[type];
-  if (spec.placement === Placement.Coast && !touchesWater(world, x, y)) return false;
+  if (spec.placement === Placement.Coast && !touchesWater(world, type, x, y)) {
+    return false;
+  }
   return true;
 }
 

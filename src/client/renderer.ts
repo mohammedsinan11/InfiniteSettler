@@ -46,6 +46,8 @@ const TERRAIN_PX = 8;
 /** 96 Chunks entsprechen rund 96 MiB Canvas-Pixeln statt ueber 500 MiB. */
 const MAX_RENDER_CHUNKS = 96;
 const SCENERY_MIN_ZOOM = 7;
+/** Wie weit ein Sprite ueber seine Grundflaeche hinausragen darf. */
+const SPRITE_OVERHANG = 1.18;
 const TREE_SEED = 0x4f2a19c3 | 0;
 const RESOURCE_SEED = 0x315ca77d | 0;
 /**
@@ -498,9 +500,10 @@ export class Renderer {
             if (tile === Tile.Forest) {
               if (trees.length === 0) continue;
               const hash = hash2i(seed ^ TREE_SEED, x, y) >>> 0;
-              // Nicht jeder Waldtile bekommt einen Baum: das verhindert eine
-              // undurchdringliche Spritewand und begrenzt die Draw-Calls.
-              if ((hash & 7) !== 0) continue;
+              // Jede Waldkachel bekommt einen Baum - Wald soll als
+              // geschlossene Flaeche lesen, nicht als Streuobstwiese.
+              // Der Versatz innerhalb der Kachel nimmt dem Ganzen das
+              // Rastermuster, das bei voller Dichte sonst auffiele.
               image = trees[(hash >>> 8) % trees.length];
               kind = 'tree';
             } else if (tile === Tile.Stone || tile === Tile.Mountain) {
@@ -524,7 +527,11 @@ export class Renderer {
               continue;
             }
 
-            objects.push({ kind, x, y, image });
+            // Versatz innerhalb der Kachel, damit die Objekte nicht auf
+            // einem sichtbaren Gitter stehen.
+            const jx = (((hash2i(seed ^ 0x51ab, x, y) >>> 0) & 255) / 255 - 0.5) * 0.55;
+            const jy = (((hash2i(seed ^ 0x9d31, x, y) >>> 0) & 255) / 255 - 0.5) * 0.4;
+            objects.push({ kind, x: x + jx, y: y + jy, image });
           }
         }
       }
@@ -543,6 +550,32 @@ export class Renderer {
     this.ctx.drawImage(image, x, y, width, height);
   }
 
+  /**
+   * Zeichnet ein Sprite passend zu seiner Grundflaeche.
+   *
+   * Die BREITE richtet sich nach der belegten Flaeche, die Hoehe ergibt
+   * sich aus dem Seitenverhaeltnis. In der 3/4-Ansicht ist das richtig
+   * herum: ein Dach darf nach oben ueber die Grundflaeche hinausragen -
+   * dort liegt aus Sicht des Betrachters ohnehin "hinter" dem Gebaeude -,
+   * aber nicht seitlich, sonst deckt es Nachbarkacheln zu, auf denen man
+   * bauen kann.
+   */
+  private drawOnFootprint(
+    image: HTMLImageElement,
+    x: number,
+    y: number,
+    footprint: number,
+  ): void {
+    const z = this.cam.zoom;
+    // Etwas breiter als die Grundflaeche: sonst wirkt das Gebaeude
+    // eingeschnuert, weil die Sprites einen transparenten Rand haben.
+    const width = footprint * z * SPRITE_OVERHANG;
+    const height = width / (image.naturalWidth / image.naturalHeight);
+    const sx = this.cam.worldToScreenX(x + footprint / 2) - width / 2;
+    const sy = this.cam.worldToScreenY(y + footprint) - height;
+    this.ctx.drawImage(image, sx, sy, width, height);
+  }
+
   private drawBuilding(b: Building): void {
     const { ctx, cam } = this;
     const z = cam.zoom;
@@ -555,14 +588,15 @@ export class Renderer {
     // sieht, worauf die Siedlung gerade wartet.
     if (!b.built) ctx.globalAlpha = 0.4;
 
+    const foot = BUILDING_SPECS[b.type].footprint;
     if (image) {
-      this.drawBottomCentered(image, b.x + 0.5, b.y + 1.05, z * 3.15);
+      this.drawOnFootprint(image, b.x, b.y, foot);
     } else {
       ctx.fillStyle = BUILDING_COLOR[b.type];
-      ctx.fillRect(sx, sy, z, z);
+      ctx.fillRect(sx, sy, z * foot, z * foot);
       ctx.strokeStyle = 'rgba(0,0,0,0.55)';
       ctx.lineWidth = 1;
-      ctx.strokeRect(sx + 0.5, sy + 0.5, z - 1, z - 1);
+      ctx.strokeRect(sx + 0.5, sy + 0.5, z * foot - 1, z * foot - 1);
     }
 
     ctx.globalAlpha = 1;
@@ -578,14 +612,15 @@ export class Renderer {
         have += Math.min(b.input[g], spec.cost[g]);
       }
       const frac = need === 0 ? 1 : have / need;
+      const fw = z * foot;
       ctx.fillStyle = 'rgba(16,24,29,0.8)';
-      ctx.fillRect(sx, sy + z - 4, z, 4);
+      ctx.fillRect(sx, sy + fw - 4, fw, 4);
       ctx.fillStyle = '#e0932f';
-      ctx.fillRect(sx, sy + z - 4, z * frac, 4);
+      ctx.fillRect(sx, sy + fw - 4, fw * frac, 4);
       ctx.strokeStyle = 'rgba(224,147,47,0.85)';
       ctx.lineWidth = 1;
       ctx.setLineDash([3, 3]);
-      ctx.strokeRect(sx + 0.5, sy + 0.5, z - 1, z - 1);
+      ctx.strokeRect(sx + 0.5, sy + 0.5, fw - 1, fw - 1);
       ctx.setLineDash([]);
       return;
     }
@@ -596,10 +631,11 @@ export class Renderer {
     // erhalten; sie liegen an der logischen Kachel statt auf dem Dach.
     if (spec.workTicks > 0 && b.progress >= 0) {
       const frac = b.progress / spec.workTicks;
+      const fw = z * foot;
       ctx.fillStyle = 'rgba(16,24,29,0.78)';
-      ctx.fillRect(sx, sy + z - 3, z, 3);
+      ctx.fillRect(sx, sy + fw - 3, fw, 3);
       ctx.fillStyle = '#f4d35e';
-      ctx.fillRect(sx, sy + z - 3, z * frac, 3);
+      ctx.fillRect(sx, sy + fw - 3, fw * frac, 3);
     }
 
     let dot = 0;

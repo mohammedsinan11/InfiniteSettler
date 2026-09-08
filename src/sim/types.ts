@@ -77,6 +77,17 @@ export interface BuildingSpec {
    * eine erneuerbare Quelle, die Wasserkachel bleibt.
    */
   readonly harvestConsumes: boolean;
+  /**
+   * Kantenlaenge der belegten Flaeche in Tiles (quadratisch).
+   *
+   * Bis hierher belegte jedes Gebaeude genau eine Kachel, waehrend sein
+   * Sprite gut vier Kacheln breit gezeichnet wurde. Man konnte deshalb
+   * eine Strasse mitten durch ein sichtbares Haus legen. Die Grundflaeche
+   * bringt Bild und Spiellogik wieder zur Deckung.
+   *
+   * Anker ist die Kachel links oben; belegt sind (x..x+n-1, y..y+n-1).
+   */
+  readonly footprint: number;
   /** Wo das Gebaeude stehen darf. */
   readonly placement: Placement;
   /**
@@ -102,6 +113,7 @@ export const BUILDING_SPECS: Record<BuildingType, BuildingSpec> = {
     harvestTile: Tile.Forest,
     harvestRadius: 6,
     harvestConsumes: true,
+    footprint: 2,
     placement: Placement.Land,
     isSink: false,
   },
@@ -117,6 +129,7 @@ export const BUILDING_SPECS: Record<BuildingType, BuildingSpec> = {
     harvestTile: -1,
     harvestRadius: 0,
     harvestConsumes: false,
+    footprint: 2,
     placement: Placement.Land,
     isSink: false,
   },
@@ -130,6 +143,7 @@ export const BUILDING_SPECS: Record<BuildingType, BuildingSpec> = {
     harvestTile: -1,
     harvestRadius: 0,
     harvestConsumes: false,
+    footprint: 2,
     placement: Placement.Land,
     isSink: true,
   },
@@ -145,6 +159,7 @@ export const BUILDING_SPECS: Record<BuildingType, BuildingSpec> = {
     // Fels ist endlich: der abgebaute Untergrund wird zu Gras, der
     // Steinbruch versiegt also wie der Holzfaeller.
     harvestConsumes: true,
+    footprint: 2,
     placement: Placement.Land,
     isSink: false,
   },
@@ -162,6 +177,7 @@ export const BUILDING_SPECS: Record<BuildingType, BuildingSpec> = {
     // nicht ein paar Kacheln landeinwaerts noch Fisch finden.
     harvestRadius: 3,
     harvestConsumes: false,
+    footprint: 2,
     placement: Placement.Coast,
     isSink: false,
   },
