@@ -80,6 +80,15 @@ export class ChunkStore {
     return chunk;
   }
 
+  /**
+   * Liefert den Chunk nur, wenn er bereits im Cache liegt - ohne ihn zu
+   * erzeugen. Der Renderer braucht das: was er in diesem Frame nicht
+   * zeichnet, soll er auch nicht generieren lassen.
+   */
+  peek(cx: number, cy: number): ChunkData | undefined {
+    return this.cache.get(chunkKey(cx, cy));
+  }
+
   has(cx: number, cy: number): boolean {
     return this.cache.has(chunkKey(cx, cy));
   }
