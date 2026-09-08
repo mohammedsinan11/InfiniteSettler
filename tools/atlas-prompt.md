@@ -5,8 +5,10 @@ weil an genau ihnen das erste Blatt gescheitert ist: die Beschriftungen
 klebten in den Zellen und landeten mit im Zuschnitt, und das Raster war
 unregelmäßig.
 
-Nach Erhalt: Blatt neben `preview/atlas_reference.png` legen und in
-`tools/extract-atlas.mjs` einen Eintrag in `CATEGORIES` ergänzen.
+Nach Erhalt: Blatt als
+`texture pack/medieval_texture_pack_v0.1/preview/atlas_expansion.png`
+ablegen. `tools/extract-atlas.mjs` verarbeitet derzeit nur den ersten Atlas;
+für das neue Blatt dort eine eigene Quelle und die neuen Kategorien ergänzen.
 
 ---
 
@@ -20,9 +22,9 @@ Aufbauspiel im Stil von "Die Siedler".
 1. **Keinerlei Text im Bild.** Keine Beschriftungen, Überschriften,
    Zeilennamen, Zahlen oder Wasserzeichen. Auch nicht neben oder unter
    den Motiven.
-2. **Regelmäßiges Raster.** Alle Zellen exakt gleich groß, gleichmäßige
-   Abstände, mindestens 10 Pixel sichtbarer Zwischenraum zwischen zwei
-   Zellen. Kein Motiv berührt seinen Zellrand.
+2. **Exakt 4 Spalten und 9 Zeilen.** Alle 36 Zellen sind gleich groß und
+   bilden ein regelmäßiges Raster. Zwischen zwei Zellen liegen mindestens
+   10 Pixel sichtbarer Zwischenraum. Kein Motiv berührt seinen Zellrand.
 3. **Ein Motiv pro Zelle**, und rundherum mindestens **8 Pixel freier
    Rand** innerhalb der Zelle. Das Motiv darf den Zellrand nirgends
    berühren — auch nicht mit Bodenplatte, Zaun, Beiwerk oder Schatten.
@@ -44,7 +46,7 @@ Aufbauspiel im Stil von "Die Siedler".
 - Gebäude etwa 96 Pixel breit und 70–95 Pixel hoch, also breiter als hoch.
 - Kleine Symbole etwa 32×32 Pixel.
 
-**Zeilen (je 4 Varianten desselben Motivs, sichtbar unterschiedlich):**
+**Zeilen 1–7 (je 4 Varianten desselben Motivs, sichtbar unterschiedlich):**
 
 1. **Hafen** — Steg ins Wasser, Anleger mit Pollern, kleines Boot,
    gestapelte Kisten und Fässer, Bootshaus mit Schindeldach
@@ -61,9 +63,14 @@ Aufbauspiel im Stil von "Die Siedler".
 7. **Baustelle** — Gerüst aus Stangen, gestapelte Bretter, halbfertige
    Mauern; die vier Varianten zeigen zunehmenden Baufortschritt
 
-**Achte Zeile — kleine Warensymbole, je 32×32, freistehend:**
-Fisch, Brotlaib, Mehlsack, Getreidegarbe, Kohlebrocken, Eisenbarren,
-Werkzeug (Hammer und Zange), Fleischstück.
+**Zeile 8 — vier kleine Warensymbole, je 32×32, freistehend:**
+Fisch, Brotlaib, Mehlsack, Getreidegarbe.
+
+**Zeile 9 — vier kleine Warensymbole, je 32×32, freistehend:**
+Kohlebrocken, Eisenbarren, Werkzeug (Hammer und Zange), Fleischstück.
+
+Die Reihenfolge ist verbindlich: von links nach rechts und von oben nach
+unten genau wie hier aufgelistet. Keine weiteren Motive oder Leerzellen.
 
 ## Stilreferenzen aus dem vorhandenen Paket
 

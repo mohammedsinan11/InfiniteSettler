@@ -114,6 +114,64 @@ export function canPlaceOn(world: World, x: number, y: number): boolean {
   return isBuildable(getTile(world, x, y));
 }
 
+/**
+ * Sucht in der Naehe eine bessere Bauposition.
+ *
+ * "Besser" heisst: gueltig UND an eine Strasse oder ein Gebaeude
+ * angrenzend - denn ohne Anschluss holt kein Traeger etwas ab, und ein
+ * unangebundenes Gebaeude ist der haeufigste Anfaengerfehler. Gesucht wird
+ * nur in einem kleinen Umkreis und nur, wenn die Zielposition selbst
+ * keinen Anschluss hat; sonst wuerde die Vorschau unter dem Finger
+ * wegspringen.
+ *
+ * Liefert die Ankerkachel oder null, wenn nichts Besseres in Reichweite ist.
+ */
+export function snapPlacement(
+  world: World,
+  type: BuildingType,
+  x: number,
+  y: number,
+  radius = 2,
+): { x: number; y: number } | null {
+  if (canPlaceBuilding(world, type, x, y) && isConnected(world, type, x, y)) {
+    return { x, y };
+  }
+  let best: { x: number; y: number } | null = null;
+  let bestScore = Infinity;
+  for (let dy = -radius; dy <= radius; dy++) {
+    for (let dx = -radius; dx <= radius; dx++) {
+      const nx = x + dx;
+      const ny = y + dy;
+      if (!canPlaceBuilding(world, type, nx, ny)) continue;
+      if (!isConnected(world, type, nx, ny)) continue;
+      // Naeher schlaegt weiter; bei Gleichstand entscheidet die feste
+      // Scanreihenfolge, damit die Vorschau nicht flackert.
+      const score = dx * dx + dy * dy;
+      if (score >= bestScore) continue;
+      bestScore = score;
+      best = { x: nx, y: ny };
+    }
+  }
+  return best;
+}
+
+/** Grenzt die Grundflaeche an eine Strasse oder ein anderes Gebaeude? */
+export function isConnected(
+  world: World,
+  type: BuildingType,
+  x: number,
+  y: number,
+): boolean {
+  let found = false;
+  forEachFootprint(type, x, y, (tx, ty) => {
+    for (const [dx, dy] of NEIGHBORS) {
+      const key = tileKey(tx + dx, ty + dy);
+      if (world.state.roads.has(key) || world.state.buildingAt.has(key)) found = true;
+    }
+  });
+  return found;
+}
+
 /** Ruft fn fuer jede Kachel der Grundflaeche auf. */
 export function forEachFootprint(
   type: BuildingType,

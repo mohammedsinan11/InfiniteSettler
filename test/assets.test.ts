@@ -11,6 +11,7 @@ import manifest from '../src/assets/medieval/manifest.json';
 const groups: Array<[string, string[]]> = [
   ['terrain', Object.values(manifest.terrain).flat()],
   ['goods', Object.values(manifest.goods).flat()],
+  ['scatter', Object.values(manifest.scatter).flat()],
   ['buildings', Object.values(manifest.buildings).flat()],
   ['trees', [...manifest.trees]],
   ['resources', Object.values(manifest.resources).flat()],
@@ -23,7 +24,7 @@ describe('Grafikmanifest', () => {
     for (const [name, list] of groups) {
       expect(new Set(list).size, `${name} enthaelt Doppelte`).toBe(list.length);
     }
-    expect(paths.length).toBe(93);
+    expect(paths.length).toBe(105);
 
     for (const path of paths) {
       const file = new URL(`../src/assets/medieval/${path}`, import.meta.url);

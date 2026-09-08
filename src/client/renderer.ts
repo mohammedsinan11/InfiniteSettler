@@ -47,6 +47,14 @@ const TERRAIN_PX = 8;
 const MAX_RENDER_CHUNKS = 96;
 const SCENERY_MIN_ZOOM = 7;
 /**
+ * Ab welchem Zoom Blumen und Buesche gezeichnet werden.
+ *
+ * Deutlich hoeher als bei Baeumen: bei Zoom 7 waere eine Blume sechs Pixel
+ * gross - unsichtbar, aber sie kostet denselben Draw-Call. Gemessen
+ * machten sie in der Uebersicht ueber ein Drittel aller Szenenobjekte aus.
+ */
+const SCATTER_MIN_ZOOM = 13;
+/**
  * Wie weit ein Gebaeudesprite ueber seine Grundflaeche hinausragen darf.
  *
  * Deutlich groesser als 1, weil die Sprites rundherum ein gemaltes
@@ -56,6 +64,7 @@ const SCENERY_MIN_ZOOM = 7;
  */
 const SPRITE_OVERHANG = 1.5;
 const TREE_SEED = 0x4f2a19c3 | 0;
+const SCATTER_SEED = 0x2c8f5b71 | 0;
 const RESOURCE_SEED = 0x315ca77d | 0;
 /**
  * Reliefschattierung nach ABSOLUTER Hoehe, nicht nach Steigung.
@@ -90,12 +99,23 @@ const TILE_SPRITE: Record<Tile, TerrainSprite> = {
   [Tile.Mountain]: 'snow',
 };
 
+/** Was die Bauvorschau zeichnen soll. */
+export interface BuildPreview {
+  x: number;
+  y: number;
+  footprint: number;
+  valid: boolean;
+  snapped: boolean;
+  image: HTMLImageElement | null;
+}
+
 interface Ghost {
   px: number;
   py: number;
 }
 
 type SceneObject =
+  | { kind: 'scatter'; x: number; y: number; image: HTMLImageElement }
   | { kind: 'tree'; x: number; y: number; image: HTMLImageElement }
   | { kind: 'resource'; x: number; y: number; image: HTMLImageElement }
   | { kind: 'building'; x: number; y: number; building: Building }
@@ -114,6 +134,16 @@ export class Renderer {
    * kopiert nur noch 8x8-Bloecke.
    */
   private detailTiles = new Map<HTMLImageElement, HTMLCanvasElement>();
+  /**
+   * Verkleinerte Fassungen der Objektsprites, nach Zweierpotenzen gestuft.
+   *
+   * Ein Baum liegt als 41x105-PNG vor. Bei Uebersichtszoom wird er auf
+   * etwa 18 Pixel gezeichnet - und das Herunterrechnen passiert dann bei
+   * JEDEM der tausenden Baeume in JEDEM Frame. Einmal pro Groessenstufe
+   * vorgebacken kostet das Zeichnen danach fast nichts. Gestuft, damit
+   * beim Zoomen nicht bei jedem Zwischenwert neu gebacken wird.
+   */
+  private scaledSprites = new Map<string, HTMLCanvasElement>();
   /** Positionen des vorherigen Ticks, fuer weiche Traegerbewegung. */
   private ghosts = new Map<number, Ghost>();
   private textureSeed: number;
@@ -140,6 +170,33 @@ export class Renderer {
     this.assets = assets;
     this.cache.clear();
     this.detailTiles.clear();
+    this.scaledSprites.clear();
+  }
+
+  /** Passend verkleinerte Fassung eines Sprites, oder das Original. */
+  private scaledSprite(
+    image: HTMLImageElement,
+    targetHeight: number,
+  ): CanvasImageSource {
+    // Kaum kleiner als das Original? Dann lohnt der Umweg nicht.
+    if (targetHeight >= image.naturalHeight * 0.7) return image;
+
+    const bucket = Math.max(8, 2 ** Math.ceil(Math.log2(targetHeight)));
+    const key = image.src + '@' + bucket;
+    const cached = this.scaledSprites.get(key);
+    if (cached) return cached;
+
+    const h = Math.max(1, Math.round(bucket));
+    const w = Math.max(1, Math.round((h * image.naturalWidth) / image.naturalHeight));
+    const el = document.createElement('canvas');
+    el.width = w;
+    el.height = h;
+    const g = el.getContext('2d');
+    if (!g) return image;
+    g.imageSmoothingEnabled = true;
+    g.drawImage(image, 0, 0, w, h);
+    this.scaledSprites.set(key, el);
+    return el;
   }
 
   /** Quellzuschnitt und Skalierung einer Terrainvariante, einmalig. */
@@ -197,7 +254,7 @@ export class Renderer {
     }
   }
 
-  draw(alpha: number, hover: { x: number; y: number } | null): void {
+  draw(alpha: number, hover: BuildPreview | null): void {
     const { ctx, cam } = this;
     ctx.imageSmoothingEnabled = false;
     ctx.fillStyle = UNLOADED_COLOR;
@@ -206,7 +263,7 @@ export class Renderer {
     this.drawTerrain();
     this.drawRoads();
     this.drawWorldObjects(alpha);
-    if (hover) this.drawHover(hover.x, hover.y);
+    if (hover) this.drawPreview(hover);
   }
 
   // --- Terrain ---------------------------------------------------------
@@ -350,11 +407,22 @@ export class Renderer {
           : this.terrainImages(tiles[(ly << CHUNK_BITS) | lx] as Tile);
         if (variants.length === 0) continue;
         const hash = hash2i(this.textureSeed, ox + lx, oy + ly) >>> 0;
-        g.drawImage(
-          this.detailTile(variants[hash % variants.length]),
-          lx * TERRAIN_PX,
-          ly * TERRAIN_PX,
-        );
+        const tile = this.detailTile(variants[hash % variants.length]);
+        // Zusaetzlich spiegeln und drehen. Aus sechs Grasvarianten werden
+        // so 48 sichtbar verschiedene Kacheln - ohne eine einzige neue
+        // Grafik. Ohne das wiederholt sich der Boden erkennbar, gerade auf
+        // grossen Wiesen-, Sand- und Wasserflaechen.
+        const orient = (hash >>> 12) & 7;
+        if (orient === 0) {
+          g.drawImage(tile, lx * TERRAIN_PX, ly * TERRAIN_PX);
+        } else {
+          g.save();
+          g.translate(lx * TERRAIN_PX + TERRAIN_PX / 2, ly * TERRAIN_PX + TERRAIN_PX / 2);
+          g.rotate(((orient & 3) * Math.PI) / 2);
+          if (orient & 4) g.scale(-1, 1);
+          g.drawImage(tile, -TERRAIN_PX / 2, -TERRAIN_PX / 2);
+          g.restore();
+        }
       }
     }
     g.globalAlpha = 1;
@@ -462,23 +530,21 @@ export class Renderer {
       ctx.fillRect(sx, sy, w, h);
       if (sprites.length === 0 || z < 4) continue;
 
-      const image = sprites[
-        (hash2i(this.textureSeed ^ 0x218bc1, x, y) >>> 0) % sprites.length
-      ];
-      ctx.globalAlpha = 0.76;
-      // Denselben Ausschnitt wie beim Terrain nehmen, sonst zeigt der
-      // gemalte Rahmen der Vorlage ein Gitter.
-      const crop = Math.max(
-        1,
-        Math.round(Math.min(image.naturalWidth, image.naturalHeight) * 0.08),
+      const image = this.detailTile(
+        sprites[(hash2i(this.textureSeed ^ 0x218bc1, x, y) >>> 0) % sprites.length],
       );
-      const src = {
-        x: crop + ((image.naturalWidth - crop * 2) * left) / z,
-        y: crop + ((image.naturalHeight - crop * 2) * up) / z,
-        w: ((image.naturalWidth - crop * 2) * w) / z,
-        h: ((image.naturalHeight - crop * 2) * h) / z,
-      };
-      ctx.drawImage(image, src.x, src.y, src.w, src.h, sx, sy, w, h);
+      // Das Sprite wird immer auf die VOLLE Kachel gezeichnet und nur auf
+      // das Band beschnitten. Vorher wurde stattdessen ein Teilausschnitt
+      // der Vorlage auf das Band gestreckt - dadurch erschien die Textur
+      // je nach Anschluss in anderem Massstab, was die Strasse
+      // verwaschen wirken liess.
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(sx, sy, w, h);
+      ctx.clip();
+      ctx.globalAlpha = 0.92;
+      ctx.drawImage(image, cam.worldToScreenX(x), cam.worldToScreenY(y), z, z);
+      ctx.restore();
       ctx.globalAlpha = 1;
     }
   }
@@ -513,6 +579,9 @@ export class Renderer {
 
     for (const object of objects) {
       switch (object.kind) {
+        case 'scatter':
+          this.drawBottomCentered(object.image, object.x + 0.5, object.y + 1, cam.zoom * 0.85);
+          break;
         case 'tree':
           this.drawBottomCentered(object.image, object.x + 0.5, object.y + 1, cam.zoom * 2.65);
           break;
@@ -546,6 +615,16 @@ export class Renderer {
   ): void {
     const state = this.world.state;
     const trees = this.assets.trees;
+    const scatter = this.cam.zoom >= SCATTER_MIN_ZOOM;
+    /**
+     * Baumdichte nach Zoom.
+     *
+     * Bei Uebersichtszoom ist ein Baum achtzehn Pixel gross und von seinem
+     * Nachbarn nicht zu unterscheiden - jeder einzelne kostet trotzdem
+     * einen Draw-Call. Ausgeduennt bleibt der Waldeindruck erhalten, weil
+     * der dunkle Waldboden darunter ihn ohnehin traegt.
+     */
+    const treeStep = this.cam.zoom >= 12 ? 1 : 3;
     const hasOverrides = state.terrainOverride.size > 0;
     const hasOccupants = state.roads.size > 0 || state.buildingAt.size > 0;
     const seed = state.seed;
@@ -579,11 +658,25 @@ export class Renderer {
             }
 
             let image: HTMLImageElement | undefined;
-            let kind: 'tree' | 'resource';
+            let kind: 'tree' | 'resource' | 'scatter';
 
-            if (tile === Tile.Forest) {
+            if (tile === Tile.Grass) {
+              if (!scatter) continue;
+              // Wiese bekommt sparsam Blumen und Buesche. Sparsam ist hier
+              // Absicht: dicht gestreut liest sich Gras nicht mehr als
+              // freie Flaeche, auf der man bauen kann.
+              const hash = hash2i(seed ^ SCATTER_SEED, x, y) >>> 0;
+              if ((hash & 15) !== 0) continue;
+              const group = (hash >>> 4) & 3
+                ? this.assets.scatter.bushes
+                : this.assets.scatter.flowers;
+              if (group.length === 0) continue;
+              image = group[(hash >>> 8) % group.length];
+              kind = 'scatter';
+            } else if (tile === Tile.Forest) {
               if (trees.length === 0) continue;
               const hash = hash2i(seed ^ TREE_SEED, x, y) >>> 0;
+              if (treeStep > 1 && hash % treeStep !== 0) continue;
               // Jede Waldkachel bekommt einen Baum - Wald soll als
               // geschlossene Flaeche lesen, nicht als Streuobstwiese.
               // Der Versatz innerhalb der Kachel nimmt dem Ganzen das
@@ -631,7 +724,7 @@ export class Renderer {
     const width = height * (image.naturalWidth / image.naturalHeight);
     const x = this.cam.worldToScreenX(worldX) - width / 2;
     const y = this.cam.worldToScreenY(worldY) - height;
-    this.ctx.drawImage(image, x, y, width, height);
+    this.ctx.drawImage(this.scaledSprite(image, height), x, y, width, height);
   }
 
   /**
@@ -746,16 +839,42 @@ export class Renderer {
     return dy < 0 ? 'up' : 'down';
   }
 
-  private drawHover(x: number, y: number): void {
+  /**
+   * Bauvorschau.
+   *
+   * Zeigt die belegte Flaeche, ob dort gebaut werden darf, und - bei einer
+   * Bauart - einen halbdurchsichtigen Geist des Gebaeudes. Vorher gab es
+   * nur einen weissen Kachelrahmen; man sah weder wieviel Platz ein
+   * Gebaeude braucht noch ob die Stelle taugt, und erfuhr es erst, wenn
+   * beim Tippen nichts passierte.
+   */
+  private drawPreview(p: BuildPreview): void {
     const { ctx, cam } = this;
-    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+    const z = cam.zoom;
+    const n = p.footprint;
+    const sx = cam.worldToScreenX(p.x);
+    const sy = cam.worldToScreenY(p.y);
+
+    if (p.image) {
+      ctx.globalAlpha = 0.55;
+      this.drawOnFootprint(p.image, p.x, p.y, n);
+      ctx.globalAlpha = 1;
+    }
+
+    ctx.fillStyle = p.valid ? 'rgba(127,209,165,0.20)' : 'rgba(217,139,139,0.24)';
+    ctx.fillRect(sx, sy, z * n, z * n);
+    ctx.strokeStyle = p.valid ? 'rgba(127,209,165,0.95)' : 'rgba(217,139,139,0.95)';
     ctx.lineWidth = 2;
-    ctx.strokeRect(
-      cam.worldToScreenX(x) + 1,
-      cam.worldToScreenY(y) + 1,
-      cam.zoom - 2,
-      cam.zoom - 2,
-    );
+    ctx.strokeRect(sx + 1, sy + 1, z * n - 2, z * n - 2);
+
+    // Eingerastet: kleiner Hinweis, dass die Vorschau nicht genau unter
+    // dem Zeiger sitzt.
+    if (p.snapped) {
+      ctx.fillStyle = 'rgba(127,209,165,0.95)';
+      ctx.beginPath();
+      ctx.arc(sx + (z * n) / 2, sy + (z * n) / 2, Math.max(2, z * 0.12), 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 }
 
@@ -763,6 +882,7 @@ const clamp255 = (v: number): number => (v < 0 ? 0 : v > 255 ? 255 : v);
 
 const sceneOrder = (kind: SceneObject['kind']): number => {
   switch (kind) {
+    case 'scatter': return 0;
     case 'tree': return 0;
     case 'resource': return 1;
     case 'building': return 2;

@@ -63,6 +63,13 @@ export const BUILD_TYPE: Partial<Record<Mode, BuildingType>> = {
 export class Input {
   mode: Mode = Mode.Pan;
   onModeChange: ((m: Mode) => void) | null = null;
+  /**
+   * Verlegt eine Bauposition, bevor der Command entsteht.
+   *
+   * Muss dieselbe Verlegung liefern wie die Bauvorschau - sonst zeigte die
+   * Vorschau die eingerastete Stelle, gebaut wuerde aber unter dem Zeiger.
+   */
+  resolveBuild: ((x: number, y: number) => { x: number; y: number }) | null = null;
 
   private queue: Command[] = [];
   private keys = new Set<string>();
@@ -328,7 +335,9 @@ export class Input {
       return;
     }
     const bt = BUILD_TYPE[this.mode];
-    if (bt !== undefined) this.queue.push({ t: 'build', bt, x, y });
+    if (bt === undefined) return;
+    const at = this.resolveBuild?.(x, y) ?? { x, y };
+    this.queue.push({ t: 'build', bt, x: at.x, y: at.y });
   }
 
   // --- Tastatur --------------------------------------------------------

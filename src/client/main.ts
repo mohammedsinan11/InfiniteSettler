@@ -13,16 +13,23 @@
 
 import { parseKey } from '../sim/coords';
 import { hashWorldHex, serialize, deserialize } from '../sim/serialize';
-import { createWorld, getTile, stockSummary, type World } from '../sim/state';
+import {
+  canPlaceBuilding,
+  createWorld,
+  getTile,
+  snapPlacement,
+  stockSummary,
+  type World,
+} from '../sim/state';
 import { TILE_NAMES, Tile } from '../sim/terrain';
-import { BuildingType } from '../sim/types';
+import { BUILDING_SPECS, BuildingType } from '../sim/types';
 import { TICK_MS, step } from '../sim/tick';
 import { Camera } from './camera';
 import { emptyGameAssets, loadGameAssets } from './assets';
 import { Hud } from './hud';
-import { Input, Mode } from './input';
+import { BUILD_TYPE, Input, Mode } from './input';
 import { clearSnapshot, loadSnapshot, saveSnapshot } from './persist';
-import { Renderer } from './renderer';
+import { Renderer, type BuildPreview } from './renderer';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 const cam = new Camera();
@@ -41,6 +48,12 @@ const hud = new Hud(
   },
 );
 input.onModeChange = (m) => hud.setMode(m);
+// Dieselbe Verlegung wie in der Vorschau - siehe buildPreview().
+input.resolveBuild = (x, y) => {
+  const type = BUILD_TYPE[input.mode];
+  if (type === undefined) return { x, y };
+  return snapPlacement(world, type, x, y) ?? { x, y };
+};
 input.setMode(Mode.Pan);
 
 // --- Aufsetzen ---------------------------------------------------------
@@ -162,6 +175,34 @@ async function boot(): Promise<void> {
   requestAnimationFrame(frame);
 }
 
+/**
+ * Baut die Vorschau fuer die aktuelle Zeigerposition.
+ *
+ * Die Gueltigkeit kommt aus canPlaceBuilding, also aus derselben Funktion,
+ * die auch der Command benutzt - eine zweite Regel im Client koennte
+ * abweichen und unter Lockstep einen Desync erzeugen.
+ */
+function buildPreview(): BuildPreview | null {
+  const hover = input.hoverTile();
+  if (!hover) return null;
+
+  const type = BUILD_TYPE[input.mode];
+  if (type === undefined) {
+    return { x: hover.x, y: hover.y, footprint: 1, valid: true, snapped: false, image: null };
+  }
+
+  const snap = snapPlacement(world, type, hover.x, hover.y);
+  const at = snap ?? hover;
+  return {
+    x: at.x,
+    y: at.y,
+    footprint: BUILDING_SPECS[type].footprint,
+    valid: canPlaceBuilding(world, type, at.x, at.y),
+    snapped: snap !== null && (snap.x !== hover.x || snap.y !== hover.y),
+    image: gameAssets.buildings[type]?.[0] ?? null,
+  };
+}
+
 // --- Schleife ----------------------------------------------------------
 
 let acc = 0;
@@ -216,7 +257,7 @@ function frame(now: number): void {
     world.dirty.clear();
   }
 
-  renderer.draw(acc / TICK_MS, input.hoverTile());
+  renderer.draw(acc / TICK_MS, buildPreview());
 
   if (ticked && now - lastHashAt > 500) {
     hashCache = hashWorldHex(world);

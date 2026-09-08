@@ -117,7 +117,7 @@ const CATEGORIES = [
     cols: 4,
     rows: 5,
     rowNames: ['house', 'lumberjack_hut', 'sawmill', 'warehouse', 'farm'],
-    out: 96,
+    out: 0,
     rowBands: [
       [34, 145],
       [166, 264],
@@ -141,7 +141,7 @@ const CATEGORIES = [
     box: [470, 40, 793, 390],
     cols: 8,
     rowNames: ['oak', 'pine', 'pine_tall'],
-    out: 64,
+    out: 0,
     transparent: true,
     dir: () => 'trees',
   },
@@ -153,6 +153,17 @@ const CATEGORIES = [
     out: 32,
     transparent: true,
     dir: () => 'resources',
+  },
+  {
+    // Zaeune, Faesser, Brunnen, Karren UND Vegetation gemischt - welche
+    // davon brauchbar sind, entscheidet sich beim Ansehen.
+    name: 'decorations',
+    mode: 'runs',
+    box: [10, 735, 285, 1015],
+    rowNames: ['deco_a', 'deco_b', 'deco_c', 'deco_d'],
+    out: 0,
+    transparent: true,
+    dir: () => 'decorations',
   },
   {
     name: 'animals',
@@ -408,14 +419,22 @@ function emit(cell, cat, rowName, index) {
     }
   }
 
-  // Sprites behalten ihr Seitenverhaeltnis, Terrainkacheln werden quadratisch.
-  const target = cat.transparent
-    ? (() => {
-        const k = cat.out / Math.max(piece.width, piece.height);
-        return resize(piece, Math.max(1, Math.round(piece.width * k)),
-                             Math.max(1, Math.round(piece.height * k)));
-      })()
-    : resize(piece, cat.out, cat.out);
+  // out: 0 heisst "nicht skalieren".
+  //
+  // Jede Skalierung tastet neu ab und macht Pixelart weich. Die Motive
+  // liegen im Atlas ohnehin nicht in einer runden Zielgroesse vor, ein
+  // Herunterrechnen auf 96 kostete also nur Schaerfe. Der Renderer
+  // skaliert beim Zeichnen sowieso auf die Zoomstufe.
+  const target =
+    cat.out === 0
+      ? piece
+      : cat.transparent
+        ? (() => {
+            const k = cat.out / Math.max(piece.width, piece.height);
+            return resize(piece, Math.max(1, Math.round(piece.width * k)),
+                                 Math.max(1, Math.round(piece.height * k)));
+          })()
+        : resize(piece, cat.out, cat.out);
 
   const path = join(outRoot, cat.dir(rowName),
                     `${rowName}_${String(index).padStart(2, '0')}.png`);
