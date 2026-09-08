@@ -37,13 +37,15 @@ wird ein bereits ausgeloester Bau wieder zurueckgenommen.
 
 ## Bauen
 
-Gebaeude kosten Waren, die per Traeger angeliefert werden muessen; bis dahin
-sind sie Baustellen und arbeiten nicht. Zwei Regeln verhindern Sackgassen:
+Gebaeude kosten Waren und stehen sofort - die Kosten werden beim Setzen aus
+den Lagerbestaenden abgebucht. Reicht der Vorrat nicht, ist der Knopf im
+Bau-Overlay ausgegraut. Jedes Gebaeude belegt 3x3 Kacheln.
+Zwei Regeln verhindern Sackgassen:
 der **allererste Bau** einer Welt ist geschenkt und - wenn es ein Lager ist -
-mit Startvorrat gefuellt, und ein **Lager ist kostenlos, solange keines
-steht** (dann aber leer). Der **Holzfaeller kostet nichts** und das
-**Saegewerk kostet Holz statt Bretter**, damit sich die Kette aus dem Nichts
-starten kann.
+mit Startvorrat gefuellt (Holz, Bretter, Stein), und ein **Lager ist
+kostenlos, solange keines steht** (dann aber leer). Der **Holzfaeller kostet
+nichts** und das **Saegewerk kostet Holz statt Bretter**, damit sich die
+Kette aus dem Nichts starten kann.
 
 `#seed=123` in der URL waehlt eine bestimmte Welt. Der Spielstand wird alle
 10 Sekunden automatisch in IndexedDB gesichert.

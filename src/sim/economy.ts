@@ -39,19 +39,6 @@ export function stepProduction(world: World): void {
     const b = buildings.get(id) as Building;
     const spec = BUILDING_SPECS[b.type];
 
-    // Baustelle: sobald alle Baukosten da sind, wird sie zum Gebaeude.
-    // Die Waren werden dabei verbraucht, der Puffer also geleert.
-    if (!b.built) {
-      for (let g = 0; g < GOOD_COUNT; g++) {
-        if (b.input[g] < spec.cost[g]) break;
-        if (g === GOOD_COUNT - 1) {
-          for (let k = 0; k < GOOD_COUNT; k++) b.input[k] -= spec.cost[k];
-          b.built = true;
-        }
-      }
-      continue;
-    }
-
     if (spec.produces < 0) continue;
 
     if (b.progress < 0) {
@@ -113,10 +100,6 @@ function findHarvest(world: World, b: Building): [number, number] | null {
 /** Wieviel dieses Gebaeude von good noch aufnehmen will. */
 function demandFor(b: Building, good: Good): number {
   const spec = BUILDING_SPECS[b.type];
-  // Eine Baustelle will genau ihre Baukosten - nicht mehr und nichts
-  // anderes. Sie verhaelt sich damit fuer die Auftragsvergabe wie ein
-  // ganz normaler Verbraucher, ohne dass diese davon wissen muss.
-  if (!b.built) return spec.cost[good] - b.input[good] - b.incoming[good];
   if (spec.isSink) return 99; // Lager nimmt alles
   if (spec.consumes !== good) return 0;
   return INPUT_TARGET - b.input[good] - b.incoming[good];
@@ -130,7 +113,6 @@ function demandFor(b: Building, good: Good): number {
  * Erzeuger geben nur aus ihrem Ausgangspuffer ab, nicht aus ihrem Eingang.
  */
 function supplyOf(b: Building, good: Good): number {
-  if (!b.built) return 0; // Baustellen geben nichts ab
   const spec = BUILDING_SPECS[b.type];
   const pool = spec.isSink ? b.input[good] : b.output[good];
   return pool - b.reserved[good];

@@ -22,6 +22,7 @@ import {
   BUILDING_SPECS,
   BuildingType,
   CarrierState,
+  GOOD_COUNT,
   Good,
   type Carrier,
 } from './types';
@@ -43,6 +44,15 @@ const CARRIERS_PER_STOREHOUSE = 4;
  */
 const STARTER_PLANKS = 12;
 const STARTER_STONE = 8;
+/**
+ * Auch Holz, damit sich das Saegewerk sofort bauen laesst.
+ *
+ * Seit die Kosten beim Setzen abgebucht werden statt angeliefert zu
+ * werden, muesste man sonst erst den kostenlosen Holzfaeller bauen, eine
+ * Strasse ziehen und warten, bis drei Holz im Lager liegen - bevor
+ * ueberhaupt etwas anderes moeglich ist.
+ */
+const STARTER_WOOD = 6;
 
 /** Wendet einen Command an. false = ungueltig und folgenlos verworfen. */
 export function applyCommand(world: World, cmd: Command): boolean {
@@ -65,25 +75,24 @@ function doBuild(
   if (!canPlaceBuilding(world, bt, x, y)) return false;
 
   const s = world.state;
-  // VOR dem Hochzaehlen pruefen, sonst ist der Zaehler schon weiter.
-  const isFirst = s.nextId === 1;
-  const id = s.nextId++;
-  // Zwei Ausnahmen von der Baustellenregel, beide gegen Sackgassen:
-  //
-  //  - Der allererste Bau einer Welt entsteht fertig, und ist es ein Lager,
-  //    auch gefuellt. Ohne das gaebe es keinen Startpunkt.
-  //  - Gibt es kein Lager mehr, ist das naechste umsonst - aber leer. Ohne
-  //    Lager gibt es keine Traeger, also koennte auch keine Baustelle mehr
-  //    beliefert werden. Weil es leer bleibt, laesst sich damit nichts
-  //    erwirtschaften; es ist nur der Weg zurueck ins Spiel.
   // isFirst haengt an nextId und nicht an buildings.size: sonst liesse
   // sich durch Abreissen aller Gebaeude der Startvorrat neu abholen.
+  const isFirst = s.nextId === 1;
+
+  // Zwei Ausnahmen von den Baukosten, beide gegen Sackgassen:
+  //
+  //  - Der allererste Bau einer Welt ist geschenkt, und ist es ein Lager,
+  //    auch gefuellt. Ohne das gaebe es keinen Startpunkt.
+  //  - Gibt es kein Lager mehr, ist das naechste umsonst - aber leer. Ohne
+  //    Lager gibt es keine Traeger und damit keinen Weg zurueck. Weil es
+  //    leer bleibt, laesst sich damit nichts erwirtschaften.
   const rescue = bt === BuildingType.Storehouse && !hasStorehouse(s);
-  // Was nichts kostet, steht sofort - sonst waere der Holzfaeller einen
-  // Tick lang eine Baustelle, auf die niemand etwas liefern muesste.
-  const free = BUILDING_SPECS[bt].cost.every((n) => n === 0);
-  const building = makeBuilding(id, bt, x, y, isFirst || rescue || free);
+  if (!isFirst && !rescue && !payCost(s, BUILDING_SPECS[bt].cost)) return false;
+
+  const id = s.nextId++;
+  const building = makeBuilding(id, bt, x, y);
   if (isFirst && bt === BuildingType.Storehouse) {
+    building.input[Good.Wood] = STARTER_WOOD;
     building.input[Good.Plank] = STARTER_PLANKS;
     building.input[Good.Stone] = STARTER_STONE;
   }
@@ -113,6 +122,53 @@ function doBuild(
     }
   }
 
+  return true;
+}
+
+/**
+ * Verfuegbarer Lagerbestand einer Ware ueber alle Lager.
+ *
+ * Reserviertes zaehlt nicht mit: diese Stuecke sind einem Traeger bereits
+ * zugesagt, sie hier nochmal auszugeben wuerde den Bestand doppelt
+ * verplanen.
+ */
+function availableStock(s: World['state'], good: Good): number {
+  let n = 0;
+  for (const b of s.buildings.values()) {
+    if (!BUILDING_SPECS[b.type].isSink) continue;
+    n += Math.max(0, b.input[good] - b.reserved[good]);
+  }
+  return n;
+}
+
+/**
+ * Bucht die Baukosten sofort aus den Lagern ab.
+ *
+ * Gebaeude entstehen fertig - es gibt keine Baustelle und keine
+ * Anlieferung mehr. Die Kette behaelt trotzdem ihren Zweck, weil ohne
+ * Bretter und Steine schlicht nicht gebaut werden kann.
+ *
+ * Erst pruefen, dann abbuchen: sonst waere bei einer zu teuren Bauart die
+ * erste Ware schon weg, wenn die zweite nicht reicht. Die Lager werden in
+ * Id-Reihenfolge geleert, damit das Ergebnis reproduzierbar ist.
+ */
+function payCost(s: World['state'], cost: readonly number[]): boolean {
+  for (let g = 0; g < GOOD_COUNT; g++) {
+    if (availableStock(s, g as Good) < cost[g]) return false;
+  }
+
+  const ids = Array.from(s.buildings.keys()).sort((a, b) => a - b);
+  for (let g = 0; g < GOOD_COUNT; g++) {
+    let need = cost[g];
+    for (const id of ids) {
+      if (need <= 0) break;
+      const b = s.buildings.get(id);
+      if (!b || !BUILDING_SPECS[b.type].isSink) continue;
+      const take = Math.min(need, Math.max(0, b.input[g] - b.reserved[g]));
+      b.input[g] -= take;
+      need -= take;
+    }
+  }
   return true;
 }
 

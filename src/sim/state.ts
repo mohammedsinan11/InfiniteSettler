@@ -174,14 +174,12 @@ export function makeBuilding(
   type: BuildingType,
   x: number,
   y: number,
-  built = false,
 ): Building {
   return {
     id,
     type,
     x,
     y,
-    built,
     progress: -1,
     input: new Array<number>(GOOD_COUNT).fill(0),
     output: new Array<number>(GOOD_COUNT).fill(0),

@@ -91,8 +91,8 @@ export interface BuildingSpec {
   /** Wo das Gebaeude stehen darf. */
   readonly placement: Placement;
   /**
-   * Was der Bau kostet. Die Waren muessen per Traeger angeliefert werden;
-   * bis dahin ist das Gebaeude eine Baustelle und arbeitet nicht.
+   * Was der Bau kostet. Wird beim Setzen sofort aus den Lagerbestaenden
+   * abgebucht; reicht der Vorrat nicht, kommt der Bau nicht zustande.
    */
   readonly cost: Cost;
   /** Nimmt alles an und gibt nichts wieder ab. */
@@ -113,7 +113,7 @@ export const BUILDING_SPECS: Record<BuildingType, BuildingSpec> = {
     harvestTile: Tile.Forest,
     harvestRadius: 6,
     harvestConsumes: true,
-    footprint: 2,
+    footprint: 3,
     placement: Placement.Land,
     isSink: false,
   },
@@ -129,7 +129,7 @@ export const BUILDING_SPECS: Record<BuildingType, BuildingSpec> = {
     harvestTile: -1,
     harvestRadius: 0,
     harvestConsumes: false,
-    footprint: 2,
+    footprint: 3,
     placement: Placement.Land,
     isSink: false,
   },
@@ -143,7 +143,7 @@ export const BUILDING_SPECS: Record<BuildingType, BuildingSpec> = {
     harvestTile: -1,
     harvestRadius: 0,
     harvestConsumes: false,
-    footprint: 2,
+    footprint: 3,
     placement: Placement.Land,
     isSink: true,
   },
@@ -159,7 +159,7 @@ export const BUILDING_SPECS: Record<BuildingType, BuildingSpec> = {
     // Fels ist endlich: der abgebaute Untergrund wird zu Gras, der
     // Steinbruch versiegt also wie der Holzfaeller.
     harvestConsumes: true,
-    footprint: 2,
+    footprint: 3,
     placement: Placement.Land,
     isSink: false,
   },
@@ -177,7 +177,7 @@ export const BUILDING_SPECS: Record<BuildingType, BuildingSpec> = {
     // nicht ein paar Kacheln landeinwaerts noch Fisch finden.
     harvestRadius: 3,
     harvestConsumes: false,
-    footprint: 2,
+    footprint: 3,
     placement: Placement.Coast,
     isSink: false,
   },
@@ -197,13 +197,6 @@ export interface Building {
   reserved: number[];
   /** Von Traegern bereits unterwegs hierher - verhindert Ueberlieferung. */
   incoming: number[];
-  /**
-   * false = Baustelle. Sie fordert ihre Baukosten wie ein Verbraucher an
-   * und wird zum fertigen Gebaeude, sobald alles geliefert ist. Dadurch
-   * traegt das vorhandene Transportsystem den Bau unveraendert mit - eine
-   * Baustelle ist schlicht ein Gebaeude mit consumes und ohne produces.
-   */
-  built: boolean;
 }
 
 export const CarrierState = {

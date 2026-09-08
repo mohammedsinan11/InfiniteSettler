@@ -121,9 +121,6 @@ const cloneBuilding = (b: Building): Building => ({
   x: b.x,
   y: b.y,
   progress: b.progress,
-  // Aeltere Spielstaende kennen das Feld nicht - dort war jedes Gebaeude
-  // fertig, sonst haette es gar nicht existieren koennen.
-  built: b.built ?? true,
   input: goods(b.input),
   output: goods(b.output),
   reserved: goods(b.reserved),

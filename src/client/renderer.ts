@@ -619,10 +619,6 @@ export class Renderer {
     const sx = cam.worldToScreenX(b.x);
     const sy = cam.worldToScreenY(b.y);
 
-    // Baustellen blass und mit Baufortschritt, damit man auf einen Blick
-    // sieht, worauf die Siedlung gerade wartet.
-    if (!b.built) ctx.globalAlpha = 0.4;
-
     const foot = BUILDING_SPECS[b.type].footprint;
     if (image) {
       this.drawOnFootprint(image, b.x, b.y, foot);
@@ -634,31 +630,7 @@ export class Renderer {
       ctx.strokeRect(sx + 0.5, sy + 0.5, z * foot - 1, z * foot - 1);
     }
 
-    ctx.globalAlpha = 1;
-
     const spec = BUILDING_SPECS[b.type];
-
-    if (!b.built) {
-      // Balken zeigt den Anteil der bereits gelieferten Baukosten.
-      let need = 0;
-      let have = 0;
-      for (let g = 0; g < GOOD_COUNT; g++) {
-        need += spec.cost[g];
-        have += Math.min(b.input[g], spec.cost[g]);
-      }
-      const frac = need === 0 ? 1 : have / need;
-      const fw = z * foot;
-      ctx.fillStyle = 'rgba(16,24,29,0.8)';
-      ctx.fillRect(sx, sy + fw - 4, fw, 4);
-      ctx.fillStyle = '#e0932f';
-      ctx.fillRect(sx, sy + fw - 4, fw * frac, 4);
-      ctx.strokeStyle = 'rgba(224,147,47,0.85)';
-      ctx.lineWidth = 1;
-      ctx.setLineDash([3, 3]);
-      ctx.strokeRect(sx + 0.5, sy + 0.5, fw - 1, fw - 1);
-      ctx.setLineDash([]);
-      return;
-    }
 
     if (z < 10) return;
 

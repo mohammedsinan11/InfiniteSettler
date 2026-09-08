@@ -60,6 +60,7 @@ export class Hud {
   private buttons = new Map<Mode, HTMLButtonElement>();
   private showDetails = window.innerWidth >= NARROW;
   private lastResKey = '';
+  private lastAffordKey = '';
 
   private compass: HTMLButtonElement;
   private compassArrow: HTMLElement;
@@ -160,6 +161,7 @@ export class Hud {
   setAssets(assets: GameAssets): void {
     this.assets = assets;
     this.lastResKey = '';
+    this.lastAffordKey = '';
     this.refreshTiles();
   }
 
@@ -221,8 +223,35 @@ export class Hud {
 
   update(d: HudData): void {
     this.updateResources(d.stock);
+    this.updateAffordable(d.stock);
     this.updateCompass(d);
     if (this.showDetails) this.updateStatus(d);
+  }
+
+  /**
+   * Bauten ausgrauen, die man sich gerade nicht leisten kann.
+   *
+   * Ohne das passiert beim Tippen einfach nichts - der Command wird
+   * stillschweigend verworfen, und man sucht den Fehler auf der Karte.
+   */
+  private updateAffordable(stock: StockSummary): void {
+    const key = stock.stored.join(',');
+    if (key === this.lastAffordKey) return;
+    this.lastAffordKey = key;
+
+    for (const entry of MODES) {
+      if (entry.group !== ModeGroup.Building) continue;
+      const tile = this.buttons.get(entry.mode);
+      const type = BUILD_TYPE[entry.mode];
+      if (!tile || type === undefined) continue;
+      const cost = BUILDING_SPECS[type].cost;
+      let affordable = true;
+      for (let g = 0; g < GOOD_COUNT; g++) {
+        if (stock.stored[g] < cost[g]) affordable = false;
+      }
+      tile.classList.toggle('is-poor', !affordable);
+      tile.title = affordable ? '' : 'Nicht genug im Lager';
+    }
   }
 
   private updateCompass(d: HudData): void {
@@ -352,6 +381,8 @@ function injectStyles(): void {
     .is-tile-name { font-size: 12px; }
     .is-tile-cost { font-size: 11px; color: #9fb0c0; display: flex; align-items: center; gap: 2px; }
     .is-free { color: #7fd1a5; }
+    .is-tile.is-poor { opacity: 0.42; }
+    .is-tile.is-poor .is-tile-cost { color: #d98b8b; }
 
     .is-admin {
       position: fixed; left: 8px; right: 8px; bottom: 68px; z-index: 4;
