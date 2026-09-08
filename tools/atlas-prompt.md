@@ -18,6 +18,16 @@ Extraktor braucht nur noch Hintergrund entfernen und auf den Inhalt
 zuschneiden. Das ist die eine Sache, die Bildgeneratoren zuverlässig
 können.
 
+## Verbindliches Lieferformat
+
+**„Ein Motiv pro Bild“ ist wörtlich gemeint:** Für jedes Motiv und jede
+Variante beziehungsweise Blickrichtung muss eine eigene PNG-Datei erzeugt
+und einzeln ausgeliefert werden. **Keine Übersichtsblätter, Sprite-Sheets,
+Collagen oder Kontaktabzüge. Keine Beschriftungen und keine Rahmen.** Es ist
+ausdrücklich nicht vorgesehen, mehrere Motive in einem Bild anzuordnen und
+dieses anschließend auszuschneiden — genau dieser Arbeitsweg ist bereits
+zweimal fehlgeschlagen.
+
 ## Regeln für ALLE Aufträge
 
 ```

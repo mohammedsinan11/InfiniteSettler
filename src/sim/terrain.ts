@@ -100,6 +100,8 @@ const S_DETAIL = 0x9e3779b9 | 0;
 const S_RIDGE = 0x3c6ef372 | 0;
 const S_FOREST = 0x5bf03635 | 0;
 const S_FOREST_JITTER = 0x68e31da4 | 0;
+const S_RIVER = 0x41c64e6d | 0;
+const S_RIVER_WARP = 0x6c078965 | 0;
 
 // --- Schwellwerte ------------------------------------------------------
 // An der GEMESSENEN Verteilung ausgerichtet, nicht geraten. FBM mittelt ueber
@@ -115,8 +117,11 @@ const H_WATER = F(-0.078);
 const H_SAND = F(-0.049);
 // Weicher Hoehenanteil fuer die Gebirgsbildung: unterhalb H_HILL zaehlt nur
 // der Grat, ab H_PEAK zaehlt die Hoehe voll.
-const H_HILL = F(0.05);
-const H_PEAK = F(0.34);
+// Deutlich hoeher als zuvor (0.05): Fels entstand sonst schon in
+// maessigem Gelaende und lag als graue Flecken ueber der ganzen Karte
+// verstreut. Erst ab echter Hoehe ergeben sich Ketten statt Flecken.
+const H_HILL = F(0.14);
+const H_PEAK = F(0.38);
 const FOREST_THRESHOLD = F(-0.078);
 // Streuung pro Tile an der Waldgrenze. Ohne sie folgt die Waldkante exakt
 // einer Hoehenlinie des Noise-Feldes und die Landschaft bekommt ein
@@ -127,8 +132,43 @@ const FOREST_JITTER = F(0.17);
 // Schwellen auf den kombinierten Score aus Grat und Hoehe.
 const SCORE_STONE = F(0.656);
 const SCORE_MOUNTAIN = F(0.751);
-const W_RIDGE = F(0.68);
-const W_ALTITUDE = F(0.32);
+// Die Hoehe zaehlt mehr als zuvor. Ein ueberwiegend gratgetriebener Score
+// setzt Fels auch dort, wo das Gelaende flach ist - der Grat allein weiss
+// nichts von Hoehe.
+const W_RIDGE = F(0.52);
+const W_ALTITUDE = F(0.48);
+
+// --- Fluesse -----------------------------------------------------------
+//
+// Ein Fluss ist die Nulllinie eines Rauschfeldes: dort, wo das Feld sein
+// Vorzeichen wechselt, liegt eine duenne, endlos lange Kurve. Alles was
+// naeher als RIVER_WIDTH an dieser Linie liegt, wird Wasser.
+//
+// Warum so und nicht "Quelle suchen und bergab fliessen": auf einer
+// unendlichen Karte gibt es keinen globalen Zustand, in dem man einem
+// Lauf folgen koennte - jede Kachel muss allein aus (seed, x, y)
+// entscheidbar bleiben. Die Nulllinie liefert genau das und ist trotzdem
+// durchgehend, weil sie eine echte Kurve ist und nicht aus Stuecken
+// zusammengesetzt.
+//
+// Wenige Oktaven mit grosser Zelle, sonst zerfasert die Linie in
+// Maeander, die sich alle paar Kacheln selbst kreuzen.
+const RIVER_OCTAVES = 3;
+const RIVER_CELL_BITS = 9;
+const RIVER_GAIN = F(0.45);
+/** Eigene Verzerrung, damit Fluesse nicht den Kuestenlinien folgen. */
+const RIVER_WARP_CELL_BITS = 7;
+const RIVER_WARP_TILES = 26;
+/** Halbe Flussbreite im Bergland und kurz vor der Muendung. */
+const RIVER_WIDTH_HIGH = F(0.006);
+const RIVER_WIDTH_LOW = F(0.020);
+/**
+ * Oberhalb dieser Hoehe versiegen Fluesse.
+ *
+ * Ohne die Grenze laufen sie ueber Gipfel hinweg, was ueberall dort
+ * falsch aussieht, wo sie einen Grat queren statt ihn zu umgehen.
+ */
+const RIVER_MAX_HEIGHT = F(0.30);
 
 export interface TerrainSample {
   tile: Tile;
@@ -183,6 +223,7 @@ function classify(
 ): Tile {
   if (height < H_WATER) return Tile.Water;
   if (height < H_SAND) return Tile.Sand;
+  if (isRiver(seed, x, y, height)) return Tile.Water;
 
   // 4. Gebirge aus Grat UND Hoehe kombiniert.
   //
@@ -238,6 +279,36 @@ export function heightAt(seed: number, x: number, y: number): number {
  *
  * Nur fuer die Einfaerbung - die Spiellogik kennt nur Tile.Water.
  */
+/**
+ * Liegt hier ein Fluss?
+ *
+ * Die Breite waechst zum Tiefland hin: oben ein Bach, unten ein Strom.
+ * Das ergibt sich nicht von selbst aus dem Rauschen, sieht aber richtig
+ * aus und laesst Fluesse an der Muendung ins Meer uebergehen, statt dort
+ * abrupt zu enden.
+ */
+function isRiver(seed: number, x: number, y: number, height: number): boolean {
+  if (height > RIVER_MAX_HEIGHT) return false;
+
+  const wx =
+    x + warpOffset((seed ^ S_RIVER_WARP) | 0, x, y, RIVER_WARP_CELL_BITS, RIVER_WARP_TILES);
+  const wy =
+    y +
+    warpOffset((seed ^ S_RIVER_WARP ^ 0x5f5f) | 0, x, y, RIVER_WARP_CELL_BITS, RIVER_WARP_TILES);
+
+  const field = fbm((seed ^ S_RIVER) | 0, wx, wy, RIVER_OCTAVES, RIVER_CELL_BITS, RIVER_GAIN);
+  const dist = field < 0 ? -field : field;
+
+  // 0 = knapp ueber dem Meer, FP_ONE = an der Versiegungsgrenze.
+  let up = div((height - H_SAND) | 0, (RIVER_MAX_HEIGHT - H_SAND) | 0);
+  if (up < 0) up = 0;
+  if (up > FP_ONE) up = FP_ONE;
+  const width =
+    (RIVER_WIDTH_LOW + mul((RIVER_WIDTH_HIGH - RIVER_WIDTH_LOW) | 0, up)) | 0;
+
+  return dist < width;
+}
+
 export function waterDepth(height: number): number {
   if (height >= H_WATER) return 0;
   const d = div((H_WATER - height) | 0, (H_WATER - H_DEEP_FLOOR) | 0);
