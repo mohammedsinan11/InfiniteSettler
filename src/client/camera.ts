@@ -43,7 +43,7 @@ export class Camera {
   x = 0;
   y = 0;
   /** Pixel pro Tile. */
-  zoom = 12;
+  zoom = 18;
 
   readonly minZoom = 2;
   readonly maxZoom = 48;
@@ -55,7 +55,7 @@ export class Camera {
   private vx = 0;
   private vy = 0;
 
-  private targetZoom = 12;
+  private targetZoom = 18;
   private anchorWorldX = 0;
   private anchorWorldY = 0;
   private anchorScreenX = 0;

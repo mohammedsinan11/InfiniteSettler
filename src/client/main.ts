@@ -18,6 +18,7 @@ import { TILE_NAMES, Tile } from '../sim/terrain';
 import { BuildingType } from '../sim/types';
 import { TICK_MS, step } from '../sim/tick';
 import { Camera } from './camera';
+import { emptyGameAssets, loadGameAssets } from './assets';
 import { Hud } from './hud';
 import { Input, Mode } from './input';
 import { clearSnapshot, loadSnapshot, saveSnapshot } from './persist';
@@ -27,7 +28,8 @@ const canvas = document.getElementById('game') as HTMLCanvasElement;
 const cam = new Camera();
 
 let world: World = createWorld(seedFromUrl());
-let renderer = new Renderer(canvas, world, cam);
+let gameAssets = emptyGameAssets();
+let renderer = new Renderer(canvas, world, cam, gameAssets);
 
 const input = new Input(canvas, cam);
 const hud = new Hud(
@@ -49,7 +51,7 @@ function seedFromUrl(): number {
 
 function attachWorld(next: World): void {
   world = next;
-  renderer = new Renderer(canvas, world, cam);
+  renderer = new Renderer(canvas, world, cam, gameAssets);
   location.hash = 'seed=' + world.state.seed;
 }
 
@@ -112,6 +114,12 @@ function centerOnSettlement(): boolean {
 }
 
 async function boot(): Promise<void> {
+  const assetsPromise = loadGameAssets().catch((err) => {
+    // Die Simulation und die farbigen Fallbacks bleiben auch bei einem
+    // defekten oder unvollstaendigen Asset-Build spielbar.
+    console.warn('Grafikpaket konnte nicht geladen werden:', err);
+    return emptyGameAssets();
+  });
   try {
     const snap = await loadSnapshot();
     if (snap) {
@@ -128,6 +136,8 @@ async function boot(): Promise<void> {
     saveState = 'alter Spielstand verworfen';
     centerOnLand();
   }
+  gameAssets = await assetsPromise;
+  renderer.setAssets(gameAssets);
   requestAnimationFrame(frame);
 }
 

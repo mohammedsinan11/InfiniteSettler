@@ -42,6 +42,23 @@ landet und nie im Lager ankommt.
 In der Browserkonsole gibt `__settler.hash()` den Zustands-Hash aus — ab M5
 der schnellste Weg, einen Desync zwischen zwei Clients einzukreisen.
 
+## Grafik
+
+Der Client laedt ein kuratiertes, rund 520 KB grosses Sprite-Set aus
+`src/assets/medieval/manifest.json`. Terrainvarianten werden deterministisch
+aus Seed und Weltkoordinaten gewaehlt; Gebaeudevarianten aus ihrer stabilen Id.
+Dadurch flackert nichts zwischen Frames und zwei Clients duerfen trotzdem
+unterschiedlich rendern, ohne den Simulationszustand zu veraendern.
+
+Terrain wird einmal je Chunk in einen Detail-Cache gerendert. Baeume, Felsen,
+Gebaeude und Traeger werden am unteren Mittelpunkt ihrer logischen Kachel
+verankert und nach Welt-y sortiert. Fehlt eine PNG, bleibt das Spiel mit den
+bisherigen Farbformen benutzbar.
+
+Das lokale Rohpaket unter `texture pack/` ist absichtlich ignoriert. Das
+Werkzeug `node tools/extract-atlas.mjs --out <ziel>` kann die Ausgangsbilder
+neu erzeugen; ins Spielmanifest gelangen nur visuell gepruefte Dateien.
+
 ## Deployment
 
 Der Workflow in `.github/workflows/deploy.yml` baut bei jedem Push auf `main`

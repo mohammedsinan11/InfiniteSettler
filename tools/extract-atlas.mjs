@@ -9,11 +9,11 @@
  * Dateien, sie sind aus sich heraus also nicht reparierbar. Der Atlas ist
  * die einzige vollstaendige Quelle.
  *
- * Zwei Schnittverfahren, weil die Kategorien unterschiedlich aufgebaut sind:
+ * Drei Schnittverfahren, weil die Kategorien unterschiedlich aufgebaut sind:
  *
- *   'grid'  fuer Terrain. Die Kacheln stossen aneinander und fuellen ihre
- *           Zelle vollstaendig, es gibt also keine verlaesslichen Luecken.
- *           Die Rasterweite wird aus der bekannten Spaltenzahl abgeleitet.
+ *   'grid'  fuer Terrain und Gebaeude. Die Rasterweite wird aus der bekannten
+ *           Spaltenzahl abgeleitet; explizite Zeilenbaender halten die
+ *           Atlasbeschriftungen ausserhalb des Ergebnisses.
  *           (Einzelne Luecken zu suchen scheitert, wenn zwei Nachbarkacheln
  *           an der Grenze beide hell sind; Autokorrelation rastet auf
  *           Vielfachen der Rasterweite ein.)
@@ -25,7 +25,7 @@
  *           Dichteprofil als Schnittkanten genommen - mit Mindestabstand,
  *           damit nicht mehrere Schnitte in dieselbe Luecke fallen.
  *
- *   'runs'  fuer Sprites. Baeume, Rohstoffe und Tiere stehen frei auf dem
+ *   'runs'  fuer Sprites. Rohstoffe, Tiere und Einheiten stehen frei auf dem
  *           Panelhintergrund. Dort ist ein starres Raster gerade falsch -
  *           die Abstaende sind ungleichmaessig und manche Zeilen haben
  *           weniger Eintraege. Stattdessen werden zusammenhaengende
@@ -35,19 +35,18 @@
  * Danach jeweils: Panelhintergrund per Flutfuellung vom Rand entfernen,
  * auf den Inhalt zuschneiden, auf die Zielgroesse skalieren.
  *
- * Ergebnis (143 Dateien):
+ * Ergebnis (171 Dateien):
  *   terrain    8 Varianten x 7 Arten, 32x32, deckend
  *   buildings  4 Varianten x 5 Typen, 96x96, transparent
  *   trees      3 Zeilen x ~8, transparent
  *   resources  6 Varianten x 5 Arten, transparent
  *   animals    4 Bilder x 4 Arten, transparent
+ *   units      7 Ansichten x 4 Arten, transparent
  *
  * Bekannte Grenzen:
- *   - Die Baumzeilen sind der schwierigste Fall. Drei von 24 Baeumen
- *     werden falsch geteilt und landen als schmaler dunkler Schnipsel im
- *     Ergebnis; die Kronen ueberlappen dort so stark, dass es kein
- *     Dichteminimum zwischen ihnen gibt. Die betroffenen Dateien fallen
- *     beim Durchsehen sofort auf und lassen sich einzeln nachbessern.
+ *   - Die Baumzeilen sind der schwierigste Fall. Mehrere Baeume werden falsch
+ *     geteilt, weil sich ihre Kronen im Atlas ueberlappen. Das Spielmanifest
+ *     nimmt deshalb nur neun einzeln gepruefte Ergebnisse auf.
  *   - Im Atlas sind die Kacheln rund 42 px gross, nicht 32. Die "32x32"
  *     des Packs waren nie native Pixelart. Beim Skalieren wird deshalb
  *     zwangslaeufig neu abgetastet, was die Kanten etwas weicher macht.
@@ -86,25 +85,47 @@ const CATEGORIES = [
     cols: 8,
     rows: 7,
     rowNames: ['grass', 'dirt', 'sand', 'road', 'water', 'forest_ground', 'snow'],
+    // Die Rasterzeilen enthalten deutlich mehr vertikalen Zwischenraum als
+    // horizontal. Explizite Inhaltsbaender verhindern, dass der blaue
+    // Panelverlauf am unteren Kachelrand mit skaliert wird.
+    rowBands: [
+      [41, 80],
+      [91, 130],
+      [140, 179],
+      [190, 228],
+      [239, 277],
+      [289, 327],
+      [338, 378],
+    ],
     out: 32,
-    // Zellen leicht einruecken: die Zeilengrenzen liegen nicht exakt auf
-    // ganzen Pixeln, ohne Einrueckung blutet die Wasserzeile in die
-    // Strassenzeile darunter.
-    inset: 3,
+    // Der dunkle Zwischenraum wird pro Zelle automatisch entfernt. Ein
+    // pauschales Inset wuerde dagegen an unterschiedlich ausgerichteten
+    // Zeilen echte Randpixel abschneiden.
+    inset: 0,
+    insetX: 3,
     transparent: false, // Terrain fuellt die Kachel vollstaendig
     dir: () => 'terrain',
   },
   {
     name: 'buildings',
     mode: 'grid',
-    box: [855, 34, 1330, 624],
+    // Die erste Fassung begann bei x=855, also mitten im jeweils ersten
+    // Gebaeude. Die Spalten muessen am linken Panelrand beginnen; die
+    // Beschriftungen werden stattdessen ueber die expliziten Zeilenbaender
+    // ausgeschlossen.
+    box: [790, 34, 1323, 624],
     cols: 4,
     rows: 5,
     rowNames: ['house', 'lumberjack_hut', 'sawmill', 'warehouse', 'farm'],
     out: 96,
-    // 5 px: die Zeilenbeschriftung des Atlas ragt sonst in die erste
-    // Zelle jeder Zeile hinein - genau der Fehler der Originaldateien.
-    inset: 5,
+    rowBands: [
+      [34, 145],
+      [166, 264],
+      [285, 379],
+      [400, 501],
+      [520, 624],
+    ],
+    inset: 2,
     transparent: true,
     dir: (row) => `buildings/${row}`,
   },
@@ -141,6 +162,18 @@ const CATEGORIES = [
     out: 40,
     transparent: true,
     dir: () => 'animals',
+  },
+  {
+    // Die Atlas-Texte unter den Figuren sind nur rund zehn Pixel hoch und
+    // werden von contentRuns(minRun=20) verworfen. Uebrig bleiben die vier
+    // eigentlichen Figurenzeilen.
+    name: 'units',
+    mode: 'runs',
+    box: [410, 420, 786, 690],
+    rowNames: ['worker', 'lumberjack', 'farmer', 'soldier'],
+    out: 32,
+    transparent: true,
+    dir: () => 'units',
   },
 ];
 
@@ -343,13 +376,17 @@ const warnings = [];
 
 /** Schreibt ein Einzelbild: Hintergrund weg, zuschneiden, skalieren. */
 function emit(cell, cat, rowName, index) {
-  if (cat.transparent) clearBackground(cell);
-  else for (let i = 0; i < cell.width * cell.height; i++) cell.data[i * 4 + 3] = 255;
+  // Auch Terrain zuerst freistellen: seine Atlaszellen enthalten verschieden
+  // breite dunkle Zwischenraeume. Erst nach dem Entfernen kennen wir die
+  // tatsaechliche Kachelbox. Beim Zeichnen liegt unter den PNGs weiterhin die
+  // prozedurale Grundfarbe, deshalb sind transparente Eckpixel unkritisch.
+  clearBackground(cell);
 
   let piece = cell;
+  const cb = contentBox(cell);
+  if (!cb) return false;
+  piece = crop(cell, cb);
   if (cat.transparent) {
-    const cb = contentBox(cell);
-    if (!cb) return false;
     // Bei 'minima' wird eine feste Anzahl Schnitte erzwungen. Hat eine Zeile
     // real weniger Eintraege, entstehen dabei fast leere Zellen - die
     // werden verworfen statt als kaputte Datei geschrieben.
@@ -367,7 +404,6 @@ function emit(cell, cat, rowName, index) {
         `${cat.name}/${rowName}_${index}: ${(edge * 100).toFixed(0)}% des Zellrands belegt`
         + ' - moeglicherweise abgeschnitten');
     }
-    piece = crop(cell, cb);
   }
 
   // Sprites behalten ihr Seitenverhaeltnis, Terrainkacheln werden quadratisch.
@@ -395,15 +431,21 @@ for (const cat of CATEGORIES) {
   if (cat.mode === 'grid') {
     const cw = (box[2] - box[0]) / cat.cols;
     const rh = (box[3] - box[1]) / cat.rows;
+    const insetX = cat.insetX ?? inset;
+    const insetY = cat.insetY ?? inset;
     console.log(`${cat.name} [grid]: Box ${box.join(',')}  Zelle ${cw.toFixed(1)}x${rh.toFixed(1)}`);
     for (let r = 0; r < cat.rows; r++) {
       const rowName = cat.rowNames[r] ?? `row${r + 1}`;
+      const row = cat.rowBands?.[r] ?? [
+        Math.round(box[1] + r * rh),
+        Math.round(box[1] + (r + 1) * rh),
+      ];
       for (let c = 0; c < cat.cols; c++) {
         emit(crop(atlas, [
-          Math.round(box[0] + c * cw) + inset,
-          Math.round(box[1] + r * rh) + inset,
-          Math.round(box[0] + (c + 1) * cw) - inset,
-          Math.round(box[1] + (r + 1) * rh) - inset,
+          Math.round(box[0] + c * cw) + insetX,
+          row[0] + insetY,
+          Math.round(box[0] + (c + 1) * cw) - insetX,
+          row[1] - insetY,
         ]), cat, rowName, c + 1);
       }
     }

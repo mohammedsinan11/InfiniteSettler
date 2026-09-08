@@ -5,7 +5,7 @@ Seite (GitHub Pages), Mehrspieler kommt spaeter ueber Deterministic Lockstep
 mit einem kleinen Relay daneben — nicht auf Pages selbst, denn statisches
 Hosting kann per Definition nichts weiterleiten.
 
-Stand: **M0–M4 fertig.** M5 und M6 offen.
+Stand: **M0–M4 und Grafikpass fertig.** M5 und M6 offen.
 
 ---
 
@@ -124,6 +124,14 @@ Der Test prueft ausserdem, dass ueberhaupt etwas simuliert wird (Bretter im
 Lager, abgeholzter Wald, laufende Traeger) — sonst waere eine tote Simulation
 trivial deterministisch und der Test wertlos.
 
+### Grafikpass ✅
+
+Kuratierte Atlas-Sprites fuer Terrain, Strassen, die drei vorhandenen
+Gebaeudetypen, Wald, Fels und Traeger. Die Bilder werden zentral und mit
+Fallback geladen. Terrain liegt im Chunk-Cache; Weltobjekte sind
+bottom-center verankert und nach Welt-y sortiert. Variantenauswahl ist rein
+visuell und stabil aus Weltkoordinate beziehungsweise Objekt-Id abgeleitet.
+
 ### M5 — Netzwerk (offen)
 Cloudflare Worker mit Durable Object als Signaling und Relay. Raum-Code zuerst,
 Lobby danach. Lockstep mit Input-Delay: ein Command bei Tick T wird erst bei
@@ -144,8 +152,9 @@ sehen sich dann nicht gegenseitig die IP-Adresse.
 
 ## Nicht enthalten
 
-- Grafik sind Flaechenfarben, keine Sprites. Isometrik bliebe moeglich, weil
-  sie reine Renderer-Sache ist, solange die Sim gitterbasiert bleibt.
+- Die Perspektive bleibt ein orthogonales Raster mit 3/4-Sprites. Echte
+  Isometrik waere weiterhin reine Renderer-Sache, solange die Sim
+  gitterbasiert bleibt.
 - `state.roads` und `state.buildings` werden beim Zeichnen komplett
   durchlaufen und gecullt. Bei sehr grossen Siedlungen braucht das einen
   raeumlichen Index.

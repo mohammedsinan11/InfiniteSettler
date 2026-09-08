@@ -3,6 +3,7 @@ dist/
 .DS_Store
 *.local
 .vite/
+texture pack/
 
 # Maschinenlokale Claude-Code-Einstellungen
 .claude/settings.local.json

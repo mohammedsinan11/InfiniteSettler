@@ -1,10 +1,11 @@
 /**
  * Canvas2D-Renderer mit Chunk-Cache.
  *
- * Kernidee: jeder Chunk wird genau einmal in ein eigenes 64x64-Canvas
- * gezeichnet (ein Pixel pro Tile) und danach pro Frame nur noch mit
- * drawImage hochskaliert geblittet. Statt 4096 Rechtecken pro Chunk und
- * Frame kostet ein Chunk damit einen einzigen Draw-Call.
+ * Kernidee: jeder Chunk wird genau einmal in ein eigenes Canvas gezeichnet
+ * und danach pro Frame mit einem Draw-Call geblittet. Die Grundfarben liegen
+ * weiter in einem 64x64-ImageData; die geladenen Texturen werden einmalig in
+ * acht Pixel pro Tile daruebergelegt. So bleiben Details sichtbar, ohne im
+ * laufenden Frame tausende Terrainbilder einzeln zu zeichnen.
  *
  * Der Renderer liest den Weltzustand ausschliesslich - er schreibt nie
  * hinein. Alles Zeitabhaengige (Interpolation) ist reiner Client-Zustand.
@@ -14,9 +15,10 @@ import { HEIGHT_SHIFT, heightIndex } from '../sim/chunks';
 import { CHUNK_BITS, CHUNK_SIZE, chunkKey, parseKey, tileKey } from '../sim/coords';
 import { hash2i } from '../sim/hash';
 import { FP_ONE } from '../sim/fixed';
-import type { World } from '../sim/state';
+import { buildingIdAt, getTile, hasRoad, type World } from '../sim/state';
 import { Tile, waterDepth } from '../sim/terrain';
-import { BUILDING_SPECS, GOOD_COUNT, type Carrier } from '../sim/types';
+import { BUILDING_SPECS, GOOD_COUNT, type Building, type Carrier } from '../sim/types';
+import type { CarrierDirection, GameAssets } from './assets';
 import type { Camera } from './camera';
 import {
   BUILDING_COLOR,
@@ -39,6 +41,13 @@ import {
  */
 const CHUNK_BUILD_MS = 8;
 const UNLOADED_COLOR = '#0d1319';
+/** Detailaufloesung des statischen Terrain-Chunk-Canvas. */
+const TERRAIN_PX = 8;
+/** 96 Chunks entsprechen rund 96 MiB Canvas-Pixeln statt ueber 500 MiB. */
+const MAX_RENDER_CHUNKS = 96;
+const SCENERY_MIN_ZOOM = 7;
+const TREE_SEED = 0x4f2a19c3 | 0;
+const RESOURCE_SEED = 0x315ca77d | 0;
 /**
  * Reliefschattierung nach ABSOLUTER Hoehe, nicht nach Steigung.
  *
@@ -60,6 +69,12 @@ interface Ghost {
   py: number;
 }
 
+type SceneObject =
+  | { kind: 'tree'; x: number; y: number; image: HTMLImageElement }
+  | { kind: 'resource'; x: number; y: number; image: HTMLImageElement }
+  | { kind: 'building'; x: number; y: number; building: Building }
+  | { kind: 'carrier'; x: number; y: number; carrier: Carrier };
+
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
   private cache = new Map<string, HTMLCanvasElement>();
@@ -73,6 +88,7 @@ export class Renderer {
     canvas: HTMLCanvasElement,
     private world: World,
     private cam: Camera,
+    private assets: GameAssets,
   ) {
     const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) throw new Error('Canvas2D nicht verfuegbar');
@@ -82,6 +98,11 @@ export class Renderer {
 
   get cachedChunks(): number {
     return this.cache.size;
+  }
+
+  setAssets(assets: GameAssets): void {
+    this.assets = assets;
+    this.cache.clear();
   }
 
   /** Nach jeder Terrainaenderung aufrufen, sonst zeigt der Cache Altes. */
@@ -119,8 +140,7 @@ export class Renderer {
 
     this.drawTerrain();
     this.drawRoads();
-    this.drawBuildings();
-    this.drawCarriers(alpha);
+    this.drawWorldObjects(alpha);
     if (hover) this.drawHover(hover.x, hover.y);
   }
 
@@ -170,8 +190,8 @@ export class Renderer {
 
   private buildChunkCanvas(cx: number, cy: number): HTMLCanvasElement {
     const el = document.createElement('canvas');
-    el.width = CHUNK_SIZE;
-    el.height = CHUNK_SIZE;
+    el.width = CHUNK_SIZE * TERRAIN_PX;
+    el.height = CHUNK_SIZE * TERRAIN_PX;
     const g = el.getContext('2d');
     if (!g) throw new Error('Chunk-Canvas nicht verfuegbar');
 
@@ -229,13 +249,76 @@ export class Renderer {
       }
     }
 
-    g.putImageData(img, 0, 0);
+    const base = document.createElement('canvas');
+    base.width = CHUNK_SIZE;
+    base.height = CHUNK_SIZE;
+    const baseCtx = base.getContext('2d');
+    if (!baseCtx) throw new Error('Terrain-Basis-Canvas nicht verfuegbar');
+    baseCtx.putImageData(img, 0, 0);
+
+    g.imageSmoothingEnabled = false;
+    g.drawImage(base, 0, 0, el.width, el.height);
+
+    // Die AI-Vorlagen haben keine nahtlosen Kanten. Als halbtransparente
+    // Detailebene ueber der prozeduralen Grundfarbe wirken sie organisch,
+    // ohne Kontinentform und Tiefenschattierung zu ueberdecken.
+    g.globalAlpha = 0.42;
+    g.imageSmoothingEnabled = true;
+    for (let ly = 0; ly < CHUNK_SIZE; ly++) {
+      const wy = oy + ly;
+      for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+        const idx = (ly << CHUNK_BITS) | lx;
+        const wx = ox + lx;
+        const ov = overrides.get(tileKey(wx, wy));
+        const tile = (ov !== undefined ? ov : chunk.tiles[idx]) as Tile;
+        const variants = this.terrainImages(tile);
+        if (variants.length === 0) continue;
+        const hash = hash2i(this.textureSeed, wx, wy) >>> 0;
+        const image = variants[hash % variants.length];
+        // Die Atlasvorlage hat einen gemalten Rahmen/Schatten um jede
+        // Kachel. Nur der innere Bereich wird auf die logische Kachel
+        // gestreckt, sonst entstuende ein sichtbares Schachbrettgitter.
+        const crop = Math.max(
+          1,
+          Math.round(Math.min(image.naturalWidth, image.naturalHeight) * 0.08),
+        );
+        g.drawImage(
+          image,
+          crop,
+          crop,
+          image.naturalWidth - crop * 2,
+          image.naturalHeight - crop * 2,
+          lx * TERRAIN_PX,
+          ly * TERRAIN_PX,
+          TERRAIN_PX,
+          TERRAIN_PX,
+        );
+      }
+    }
+    g.globalAlpha = 1;
     return el;
+  }
+
+  private terrainImages(tile: Tile): HTMLImageElement[] {
+    switch (tile) {
+      case Tile.Water:
+        return this.assets.terrain.water;
+      case Tile.Sand:
+        return this.assets.terrain.sand;
+      case Tile.Grass:
+        return this.assets.terrain.grass;
+      case Tile.Forest:
+        return this.assets.terrain.forest_ground;
+      case Tile.Stone:
+        return this.assets.terrain.dirt;
+      case Tile.Mountain:
+        return this.assets.terrain.snow;
+    }
   }
 
   /** Haelt den Cache klein: alles weit ausserhalb des Sichtfelds fliegt raus. */
   private evictOffscreen(x0: number, y0: number, x1: number, y1: number): void {
-    if (this.cache.size <= 512) return;
+    if (this.cache.size <= MAX_RENDER_CHUNKS) return;
     for (const key of this.cache.keys()) {
       const [cx, cy] = parseKey(key);
       if (cx < x0 || cx > x1 || cy < y0 || cy > y1) this.cache.delete(key);
@@ -248,94 +331,208 @@ export class Renderer {
     const { ctx, cam } = this;
     const z = cam.zoom;
     const v = cam.visibleTiles();
-    ctx.fillStyle = ROAD_COLOR;
-    // Klein halten: bei grossem Abstand zerfaellt eine Strasse optisch
-    // in einzelne Kacheln, statt als Weg lesbar zu sein.
-    const inset = Math.max(0.5, z * 0.12);
+    const sprites = this.assets.terrain.road;
     for (const key of this.world.state.roads) {
       const [x, y] = parseKey(key);
       if (x < v.x0 || x > v.x1 || y < v.y0 || y > v.y1) continue;
-      ctx.fillRect(
-        cam.worldToScreenX(x) + inset,
-        cam.worldToScreenY(y) + inset,
-        z - inset * 2,
-        z - inset * 2,
-      );
+      const sx = cam.worldToScreenX(x);
+      const sy = cam.worldToScreenY(y);
+      ctx.fillStyle = ROAD_COLOR;
+      ctx.fillRect(sx, sy, z, z);
+      if (sprites.length > 0 && z >= 4) {
+        const image = sprites[
+          (hash2i(this.textureSeed ^ 0x218bc1, x, y) >>> 0) % sprites.length
+        ];
+        ctx.globalAlpha = 0.76;
+        const crop = Math.max(
+          1,
+          Math.round(Math.min(image.naturalWidth, image.naturalHeight) * 0.08),
+        );
+        ctx.drawImage(
+          image,
+          crop,
+          crop,
+          image.naturalWidth - crop * 2,
+          image.naturalHeight - crop * 2,
+          sx,
+          sy,
+          z,
+          z,
+        );
+        ctx.globalAlpha = 1;
+      }
     }
   }
 
-  private drawBuildings(): void {
-    const { ctx, cam } = this;
-    const z = cam.zoom;
+  private drawWorldObjects(alpha: number): void {
+    const { cam } = this;
     const v = cam.visibleTiles();
+    const objects: SceneObject[] = [];
+
+    if (cam.zoom >= SCENERY_MIN_ZOOM) {
+      for (let y = v.y0 - 2; y <= v.y1 + 1; y++) {
+        for (let x = v.x0 - 1; x <= v.x1 + 1; x++) {
+          if (hasRoad(this.world, x, y) || buildingIdAt(this.world, x, y) !== undefined) continue;
+          const tile = getTile(this.world, x, y);
+          if (tile === Tile.Forest && this.assets.trees.length > 0) {
+            const hash = hash2i(this.world.state.seed ^ TREE_SEED, x, y) >>> 0;
+            // Nicht jeder Waldtile bekommt einen Baum: das verhindert eine
+            // undurchdringliche Spritewand und begrenzt die Draw-Calls.
+            if ((hash & 7) === 0) {
+              objects.push({
+                kind: 'tree', x, y,
+                image: this.assets.trees[(hash >>> 8) % this.assets.trees.length],
+              });
+            }
+          } else if (tile === Tile.Stone || tile === Tile.Mountain) {
+            const hash = hash2i(this.world.state.seed ^ RESOURCE_SEED, x, y) >>> 0;
+            if ((hash & 3) !== 0) continue;
+            const variants = tile === Tile.Stone
+              ? this.assets.resources.stone
+              : this.assets.resources.mountain;
+            if (variants.length > 0) {
+              objects.push({
+                kind: 'resource', x, y,
+                image: variants[(hash >>> 8) % variants.length],
+              });
+            }
+          }
+        }
+      }
+    }
 
     for (const b of this.world.state.buildings.values()) {
-      if (b.x < v.x0 || b.x > v.x1 || b.y < v.y0 || b.y > v.y1) continue;
-      const sx = cam.worldToScreenX(b.x);
-      const sy = cam.worldToScreenY(b.y);
+      if (b.x < v.x0 - 2 || b.x > v.x1 + 2 || b.y < v.y0 - 3 || b.y > v.y1 + 1) continue;
+      objects.push({ kind: 'building', x: b.x, y: b.y, building: b });
+    }
 
+    for (const c of this.world.state.carriers.values()) {
+      const cx = c.x / FP_ONE;
+      const cy = c.y / FP_ONE;
+      if (cx < v.x0 - 1 || cx > v.x1 + 1 || cy < v.y0 - 2 || cy > v.y1 + 1) continue;
+      const ghost = this.ghosts.get(c.id);
+      objects.push({
+        kind: 'carrier',
+        x: ghost ? ghost.px + (cx - ghost.px) * alpha : cx,
+        y: ghost ? ghost.py + (cy - ghost.py) * alpha : cy,
+        carrier: c,
+      });
+    }
+
+    objects.sort((a, b) =>
+      (a.y - b.y) || (a.x - b.x) || sceneOrder(a.kind) - sceneOrder(b.kind));
+
+    for (const object of objects) {
+      switch (object.kind) {
+        case 'tree':
+          this.drawBottomCentered(object.image, object.x + 0.5, object.y + 1, cam.zoom * 2.65);
+          break;
+        case 'resource':
+          this.drawBottomCentered(object.image, object.x + 0.5, object.y + 0.95, cam.zoom * 1.35);
+          break;
+        case 'building':
+          this.drawBuilding(object.building);
+          break;
+        case 'carrier':
+          this.drawCarrier(object.carrier, object.x, object.y);
+          break;
+      }
+    }
+  }
+
+  private drawBottomCentered(
+    image: HTMLImageElement,
+    worldX: number,
+    worldY: number,
+    height: number,
+  ): void {
+    const width = height * (image.naturalWidth / image.naturalHeight);
+    const x = this.cam.worldToScreenX(worldX) - width / 2;
+    const y = this.cam.worldToScreenY(worldY) - height;
+    this.ctx.drawImage(image, x, y, width, height);
+  }
+
+  private drawBuilding(b: Building): void {
+    const { ctx, cam } = this;
+    const z = cam.zoom;
+    const sprites = this.assets.buildings[b.type] ?? [];
+    const image = sprites.length > 0 ? sprites[(b.id >>> 0) % sprites.length] : null;
+    const sx = cam.worldToScreenX(b.x);
+    const sy = cam.worldToScreenY(b.y);
+
+    if (image) {
+      this.drawBottomCentered(image, b.x + 0.5, b.y + 1.05, z * 3.15);
+    } else {
       ctx.fillStyle = BUILDING_COLOR[b.type];
       ctx.fillRect(sx, sy, z, z);
       ctx.strokeStyle = 'rgba(0,0,0,0.55)';
       ctx.lineWidth = 1;
       ctx.strokeRect(sx + 0.5, sy + 0.5, z - 1, z - 1);
+    }
 
-      if (z < 10) continue;
+    if (z < 10) return;
 
-      // Produktionsfortschritt als Balken am unteren Rand.
-      const spec = BUILDING_SPECS[b.type];
-      if (spec.workTicks > 0 && b.progress >= 0) {
-        const frac = b.progress / spec.workTicks;
-        ctx.fillStyle = 'rgba(255,255,255,0.75)';
-        ctx.fillRect(sx + 1, sy + z - 3, (z - 2) * frac, 2);
-      }
+    // Produktionsfortschritt und Waren bleiben als knappe Status-Overlays
+    // erhalten; sie liegen an der logischen Kachel statt auf dem Dach.
+    const spec = BUILDING_SPECS[b.type];
+    if (spec.workTicks > 0 && b.progress >= 0) {
+      const frac = b.progress / spec.workTicks;
+      ctx.fillStyle = 'rgba(16,24,29,0.78)';
+      ctx.fillRect(sx, sy + z - 3, z, 3);
+      ctx.fillStyle = '#f4d35e';
+      ctx.fillRect(sx, sy + z - 3, z * frac, 3);
+    }
 
-      // Lagerbestand als kleine Punkte oben.
-      let dot = 0;
-      for (let g = 0; g < GOOD_COUNT; g++) {
-        const n = b.output[g] + b.input[g];
-        if (n === 0) continue;
-        ctx.fillStyle = GOOD_COLOR[g as keyof typeof GOOD_COLOR];
-        const r = Math.max(1, z * 0.09);
-        ctx.beginPath();
-        ctx.arc(sx + 3 + dot * (r * 2 + 2), sy + 3, r, 0, Math.PI * 2);
-        ctx.fill();
-        dot++;
-      }
+    let dot = 0;
+    for (let g = 0; g < GOOD_COUNT; g++) {
+      const n = b.output[g] + b.input[g];
+      if (n === 0) continue;
+      ctx.fillStyle = GOOD_COLOR[g as keyof typeof GOOD_COLOR];
+      const r = Math.max(1.5, z * 0.1);
+      ctx.beginPath();
+      ctx.arc(sx + 3 + dot * (r * 2 + 2), sy + 3, r, 0, Math.PI * 2);
+      ctx.fill();
+      dot++;
     }
   }
 
-  private drawCarriers(alpha: number): void {
+  private drawCarrier(c: Carrier, x: number, y: number): void {
     const { ctx, cam } = this;
     const z = cam.zoom;
-    const v = cam.visibleTiles();
     const r = Math.max(1.5, z * 0.18);
+    const direction = this.carrierDirection(c, x, y);
+    const image = this.assets.carrier[direction];
+    const sx = cam.worldToScreenX(x + 0.5);
+    const sy = cam.worldToScreenY(y + 0.62);
 
-    for (const c of this.world.state.carriers.values()) {
-      const cx = c.x / FP_ONE;
-      const cy = c.y / FP_ONE;
-      if (cx < v.x0 || cx > v.x1 || cy < v.y0 || cy > v.y1) continue;
-
-      // Zwischen der Position des letzten und des aktuellen Ticks interpolieren.
-      const g = this.ghosts.get(c.id);
-      const ix = g ? g.px + (cx - g.px) * alpha : cx;
-      const iy = g ? g.py + (cy - g.py) * alpha : cy;
-
-      const sx = cam.worldToScreenX(ix + 0.5);
-      const sy = cam.worldToScreenY(iy + 0.5);
-
+    if (image && z >= 5) {
+      this.drawBottomCentered(image, x + 0.5, y + 0.72, z * 1.75);
+    } else {
       ctx.fillStyle = CARRIER_COLOR;
       ctx.beginPath();
       ctx.arc(sx, sy, r, 0, Math.PI * 2);
       ctx.fill();
-
-      if (c.carrying >= 0 && z >= 8) {
-        ctx.fillStyle = GOOD_COLOR[c.carrying as keyof typeof GOOD_COLOR];
-        ctx.beginPath();
-        ctx.arc(sx, sy, r * 0.55, 0, Math.PI * 2);
-        ctx.fill();
-      }
     }
+
+    if (c.carrying >= 0 && z >= 8) {
+      ctx.fillStyle = GOOD_COLOR[c.carrying as keyof typeof GOOD_COLOR];
+      ctx.strokeStyle = 'rgba(20,18,14,0.75)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(sx + z * 0.34, sy - z * 0.72, Math.max(2, z * 0.15), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+  }
+
+  private carrierDirection(c: Carrier, x: number, y: number): CarrierDirection {
+    const targetX = c.path[c.pathIdx * 2];
+    const targetY = c.path[c.pathIdx * 2 + 1];
+    if (targetX === undefined || targetY === undefined) return 'down';
+    const dx = targetX - x;
+    const dy = targetY - y;
+    if (Math.abs(dx) > Math.abs(dy)) return dx < 0 ? 'left' : 'right';
+    return dy < 0 ? 'up' : 'down';
   }
 
   private drawHover(x: number, y: number): void {
@@ -352,5 +549,14 @@ export class Renderer {
 }
 
 const clamp255 = (v: number): number => (v < 0 ? 0 : v > 255 ? 255 : v);
+
+const sceneOrder = (kind: SceneObject['kind']): number => {
+  switch (kind) {
+    case 'tree': return 0;
+    case 'resource': return 1;
+    case 'building': return 2;
+    case 'carrier': return 3;
+  }
+};
 
 export type { Carrier };
