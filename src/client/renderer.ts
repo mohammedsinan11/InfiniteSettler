@@ -15,9 +15,9 @@ import { HEIGHT_SHIFT, heightIndex } from '../sim/chunks';
 import { CHUNK_BITS, CHUNK_SIZE, NEIGHBORS, chunkKey, parseKey, tileKey } from '../sim/coords';
 import { hash2i } from '../sim/hash';
 import { FP_ONE } from '../sim/fixed';
-import { buildingIdAt, hasRoad, type World } from '../sim/state';
+import { buildingIdAt, getTile, hasRoad, type World } from '../sim/state';
 import { Tile, waterDepth } from '../sim/terrain';
-import { BUILDING_SPECS, GOOD_COUNT, type Building, type Carrier, type Ship } from '../sim/types';
+import { BUILDING_SPECS, BuildingType, GOOD_COUNT, type Building, type Carrier, type Ship } from '../sim/types';
 import type { CarrierDirection, GameAssets, TerrainSprite } from './assets';
 import type { Camera } from './camera';
 import {
@@ -68,6 +68,11 @@ const SPRITE_OVERHANG = 1.35;
 const TREE_SEED = 0x4f2a19c3 | 0;
 const SCATTER_SEED = 0x2c8f5b71 | 0;
 const CLIFF_SEED = 0x7b3d19a5 | 0;
+
+/** Wie weit der Hafen aus seiner Grundflaeche Richtung Wasser rueckt. */
+const HARBOR_DOCK_SHIFT = 0.45;
+/** Umkreis in Kacheln, in dem der Hafen nach Wasser sucht. */
+const HARBOR_SCAN = 3;
 const RESOURCE_SEED = 0x315ca77d | 0;
 /**
  * Reliefschattierung nach ABSOLUTER Hoehe, nicht nach Steigung.
@@ -118,7 +123,7 @@ interface Ghost {
 }
 
 type SceneObject =
-  | { kind: 'cliff'; x: number; y: number; image: HTMLImageElement }
+  | { kind: 'cliff'; x: number; y: number; image: HTMLImageElement; dir: number }
   | { kind: 'ship'; x: number; y: number; ship: Ship }
   | { kind: 'scatter'; x: number; y: number; image: HTMLImageElement }
   | { kind: 'tree'; x: number; y: number; image: HTMLImageElement }
@@ -149,6 +154,8 @@ export class Renderer {
    * beim Zoomen nicht bei jedem Zwischenwert neu gebacken wird.
    */
   private scaledSprites = new Map<string, HTMLCanvasElement>();
+  /** Wasserrichtung je Hafen - haengt nur am Gelaende. */
+  private waterDirs = new Map<number, [number, number]>();
   /** Positionen des vorherigen Ticks, fuer weiche Traegerbewegung. */
   private ghosts = new Map<number, Ghost>();
   private textureSeed: number;
@@ -675,9 +682,7 @@ export class Renderer {
     for (const object of objects) {
       switch (object.kind) {
         case 'cliff':
-          // Etwas ueber die Kachel hinaus nach unten, damit die Felswand in
-          // das Wasser darunter hineinragt statt an der Kante zu enden.
-          this.drawBottomCentered(object.image, object.x + 0.5, object.y + 1.45, cam.zoom * 1.5);
+          this.drawCliff(object.image, object.x, object.y, object.dir);
           break;
         case 'scatter':
           this.drawBottomCentered(object.image, object.x + 0.5, object.y + 1, cam.zoom * 0.85);
@@ -761,16 +766,25 @@ export class Renderer {
               if (ov !== undefined) tile = ov;
             }
 
-            // Uferkante: Land, dessen Suedseite Wasser ist. In der
-            // 3/4-Ansicht schaut man genau auf diese Kante - nach Norden,
-            // Osten oder Westen waere sie vom Gelaende verdeckt.
+            // Uferkante zu JEDER Seite, an der Wasser liegt.
+            //
+            // Das Sprite zeigt eine Felswand unter einer Grasoberkante und
+            // ist damit von Haus aus nach Sueden gerichtet. Fuer die
+            // uebrigen Seiten wird es gedreht - in der weitgehend
+            // senkrechten Aufsicht liest sich das als umlaufender Fels-
+            // saum, und eine Kante ohne Saum faellt staerker auf als eine
+            // gedrehte.
             if (cliffs.length > 0 && tile !== Tile.Water && tile !== Tile.Sand) {
-              const below = ly + 1 <= CHUNK_SIZE - 1
-                ? (chunk.tiles[((ly + 1) << CHUNK_BITS) | lx] as Tile)
-                : undefined;
-              if (below === Tile.Water) {
-                const h = hash2i(seed ^ CLIFF_SEED, x, y) >>> 0;
-                objects.push({ kind: 'cliff', x, y, image: cliffs[h % cliffs.length] });
+              for (let d = 0; d < 4; d++) {
+                const [dx, dy] = NEIGHBORS[d];
+                const nx = lx + dx;
+                const ny = ly + dy;
+                if (nx < 0 || ny < 0 || nx >= CHUNK_SIZE || ny >= CHUNK_SIZE) continue;
+                if ((chunk.tiles[(ny << CHUNK_BITS) | nx] as Tile) !== Tile.Water) continue;
+                const h = hash2i(seed ^ CLIFF_SEED ^ (d * 0x9e37), x, y) >>> 0;
+                objects.push({
+                  kind: 'cliff', x, y, dir: d, image: cliffs[h % cliffs.length],
+                });
               }
             }
 
@@ -866,6 +880,7 @@ export class Renderer {
     x: number,
     y: number,
     footprint: number,
+    mirrored = false,
   ): void {
     const z = this.cam.zoom;
     // Etwas breiter als die Grundflaeche: sonst wirkt das Gebaeude
@@ -874,7 +889,70 @@ export class Renderer {
     const height = width / (image.naturalWidth / image.naturalHeight);
     const sx = this.cam.worldToScreenX(x + footprint / 2) - width / 2;
     const sy = this.cam.worldToScreenY(y + footprint) - height;
-    this.ctx.drawImage(image, sx, sy, width, height);
+    if (!mirrored) {
+      this.ctx.drawImage(image, sx, sy, width, height);
+      return;
+    }
+    const { ctx } = this;
+    ctx.save();
+    ctx.translate(sx + width, sy);
+    ctx.scale(-1, 1);
+    ctx.drawImage(image, 0, 0, width, height);
+    ctx.restore();
+  }
+
+  /**
+   * Hafen zum Wasser hin ausrichten.
+   *
+   * Alle vier Hafensprites tragen ihren Steg links vorne. Liegt das Wasser
+   * oestlich, wird das Bild gespiegelt, damit der Steg nicht ins Landesinnere
+   * zeigt. Zusaetzlich rueckt das Gebaeude ein Stueck in Richtung Wasser, so
+   * dass der Steg die Uferlinie tatsaechlich beruehrt statt davor zu enden.
+   */
+  private drawHarbor(image: HTMLImageElement, b: Building, foot: number): void {
+    const [ox, oy] = this.waterDirection(b, foot);
+    this.drawOnFootprint(
+      image,
+      b.x + ox * HARBOR_DOCK_SHIFT,
+      b.y + oy * HARBOR_DOCK_SHIFT,
+      foot,
+      ox > 0,
+    );
+  }
+
+  /**
+   * Grobe Richtung des naechsten Wassers, als Einheitsvektor auf den Achsen.
+   *
+   * Gemittelt ueber alle Wasserkacheln im Umkreis - eine einzelne Kachel
+   * (etwa eine Flussbiegung hinter dem Haus) soll den Hafen nicht
+   * verdrehen. Das Ergebnis haengt nur am Gelaende und wird deshalb pro
+   * Gebaeude gemerkt.
+   */
+  private waterDirection(b: Building, foot: number): [number, number] {
+    const cached = this.waterDirs.get(b.id);
+    if (cached) return cached;
+
+    const cx = b.x + foot / 2 - 0.5;
+    const cy = b.y + foot / 2 - 0.5;
+    let sx = 0;
+    let sy = 0;
+    for (let y = b.y - HARBOR_SCAN; y < b.y + foot + HARBOR_SCAN; y++) {
+      for (let x = b.x - HARBOR_SCAN; x < b.x + foot + HARBOR_SCAN; x++) {
+        if (getTile(this.world, x, y) !== Tile.Water) continue;
+        // Nahes Wasser zaehlt staerker als fernes.
+        const dx = x - cx;
+        const dy = y - cy;
+        const w = 1 / (1 + dx * dx + dy * dy);
+        sx += dx * w;
+        sy += dy * w;
+      }
+    }
+
+    const dir: [number, number] = Math.abs(sx) >= Math.abs(sy)
+      ? [Math.sign(sx) || -1, 0]
+      : [0, Math.sign(sy) || 1];
+    this.waterDirs.set(b.id, dir);
+    return dir;
   }
 
   private drawBuilding(b: Building): void {
@@ -886,7 +964,9 @@ export class Renderer {
     const sy = cam.worldToScreenY(b.y);
 
     const foot = BUILDING_SPECS[b.type].footprint;
-    if (image) {
+    if (image && b.type === BuildingType.Harbor) {
+      this.drawHarbor(image, b, foot);
+    } else if (image) {
       this.drawOnFootprint(image, b.x, b.y, foot);
     } else {
       ctx.fillStyle = BUILDING_COLOR[b.type];
@@ -922,6 +1002,33 @@ export class Renderer {
       ctx.fill();
       dot++;
     }
+  }
+
+  /**
+   * Uferkante an einer der vier Seiten.
+   *
+   * NEIGHBORS ist (N, O, S, W). Das Sprite ist nach Sueden gerichtet, also
+   * wird es um die Differenz zu Sueden gedreht. Es ragt bewusst ueber die
+   * Kachel hinaus ins Wasser - sonst endete die Felswand an der
+   * Kachelkante statt einzutauchen.
+   */
+  private drawCliff(image: HTMLImageElement, x: number, y: number, dir: number): void {
+    const { ctx, cam } = this;
+    const z = cam.zoom;
+    const size = z * 1.5;
+    const turns = (dir - 2 + 4) % 4; // 2 = Sueden = ungedreht
+    const [dx, dy] = NEIGHBORS[dir];
+
+    ctx.save();
+    // Mittelpunkt leicht zur Wasserseite verschieben, damit der Fuss der
+    // Wand im Wasser steht.
+    ctx.translate(
+      cam.worldToScreenX(x + 0.5 + dx * 0.22),
+      cam.worldToScreenY(y + 0.5 + dy * 0.22),
+    );
+    if (turns !== 0) ctx.rotate((turns * Math.PI) / 2);
+    ctx.drawImage(this.scaledSprite(image, size), -size / 2, -size / 2, size, size);
+    ctx.restore();
   }
 
   private drawShip(sh: Ship, x: number, y: number): void {
