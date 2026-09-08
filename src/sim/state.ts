@@ -131,11 +131,16 @@ export function snapPlacement(
   type: BuildingType,
   x: number,
   y: number,
-  radius = 2,
+  radius = 3,
 ): { x: number; y: number } | null {
   if (canPlaceBuilding(world, type, x, y) && isConnected(world, type, x, y)) {
     return { x, y };
   }
+
+  // Radius 3 statt 2: eine 3x3-Flaeche neben eine Strasse zu treffen
+  // verlangt sonst mehr Zielgenauigkeit, als auf einem Handy zumutbar ist -
+  // und der Zeiger steht beim Bauen oft genau AUF der Strasse, wo gar
+  // nicht gebaut werden darf.
   let best: { x: number; y: number } | null = null;
   let bestScore = Infinity;
   for (let dy = -radius; dy <= radius; dy++) {

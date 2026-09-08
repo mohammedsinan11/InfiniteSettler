@@ -1,91 +1,108 @@
-# Prompt für ein zweites Sprite-Blatt
+# Sprite-Aufträge für den Bildgenerator
 
-Zum Weiterleiten an einen Bildgenerator. Die harten Regeln stehen oben,
-weil an genau ihnen das erste Blatt gescheitert ist: die Beschriftungen
-klebten in den Zellen und landeten mit im Zuschnitt, und das Raster war
-unregelmäßig.
+## Warum der bisherige Prompt nicht funktionieren konnte
 
-Nach Erhalt: Blatt als
-`texture pack/medieval_texture_pack_v0.1/preview/atlas_expansion.png`
-ablegen. `tools/extract-atlas.mjs` verarbeitet derzeit nur den ersten Atlas;
-für das neue Blatt dort eine eigene Quelle und die neuen Kategorien ergänzen.
+Der erste Prompt forderte **ein Blatt mit exaktem Raster**: gleich große
+Zellen, mindestens 10 px Abstand, dazu 8 px freier Rand um jedes Motiv und
+Zielgrößen in Pixeln.
 
----
+Das kann ein Bildgenerator nicht liefern. Er malt ein Bild, er setzt kein
+Layout — Zellgrößen, Abstände und Ränder werden immer ungefähr. Genau
+daran ist v0.1 gescheitert (Beschriftungen im Zuschnitt, wechselnder
+Versatz je Kachel), und v0.2 hat es nur nachträglich repariert, indem
+jemand am fertigen Bild entlang der sichtbaren Kanten geschnitten hat.
 
-## Prompt (ab hier kopieren)
+**Die Auflösung: gar kein Raster verlangen.** Ein Motiv pro Bild. Dann
+gibt es keine Zellen, keine Abstände, keine Beschriftungen — und mein
+Extraktor braucht nur noch Hintergrund entfernen und auf den Inhalt
+zuschneiden. Das ist die eine Sache, die Bildgeneratoren zuverlässig
+können.
 
-Erstelle ein einzelnes Sprite-Sheet als PNG für ein mittelalterliches
-Aufbauspiel im Stil von "Die Siedler".
+## Regeln für ALLE Aufträge
 
-**Harte Anforderungen — bitte strikt einhalten:**
+```
+Erstelle EIN Bild mit GENAU EINEM Motiv, freigestellt.
 
-1. **Keinerlei Text im Bild.** Keine Beschriftungen, Überschriften,
-   Zeilennamen, Zahlen oder Wasserzeichen. Auch nicht neben oder unter
-   den Motiven.
-2. **Exakt 4 Spalten und 9 Zeilen.** Alle 36 Zellen sind gleich groß und
-   bilden ein regelmäßiges Raster. Zwischen zwei Zellen liegen mindestens
-   10 Pixel sichtbarer Zwischenraum. Kein Motiv berührt seinen Zellrand.
-3. **Ein Motiv pro Zelle**, und rundherum mindestens **8 Pixel freier
-   Rand** innerhalb der Zelle. Das Motiv darf den Zellrand nirgends
-   berühren — auch nicht mit Bodenplatte, Zaun, Beiwerk oder Schatten.
-   Genau daran krankt das erste Blatt: die Gebäude füllen ihre Zellen
-   randlos, weshalb im Spiel Pflasterflächen, Zäune und Wasserläufe
-   sichtbar abgeschnitten enden.
-4. **Keine überlappenden Objekte** aus Nachbarzellen.
-5. **Einfarbiger dunkler Hintergrund**, durchgehend gleich
-   (dunkles Blaugrau, etwa #1b2430). Kein Verlauf, kein Muster, keine
-   Rahmen oder Kästen um die Zellen.
-
-**Stil:**
-
-- Pixel-Art, leicht schräge Draufsicht (3/4), Gebäude von vorne-oben
-  gesehen — **nicht** isometrisch gekippt.
-- Licht von oben links, Schatten konsistent nach rechts unten.
+- Nur das eine Objekt, nichts daneben, keine zweite Ansicht, keine Varianten
+  im selben Bild.
+- Hintergrund einfarbig kräftig Magenta (#FF00FF) — nicht transparent,
+  nicht kariert, kein Verlauf. Diese Farbe kommt im Motiv selbst nicht vor
+  und lässt sich deshalb sauber entfernen.
+- Rundherum etwas Abstand zum Bildrand. Das Motiv darf den Rand nirgends
+  berühren, auch nicht mit Schatten, Zaun, Bodenplatte oder Beiwerk.
+- KEIN Text, keine Beschriftung, keine Zahlen, kein Rahmen.
+- Pixel-Art, leicht schräge Draufsicht (3/4), von vorne-oben gesehen —
+  nicht isometrisch gekippt.
+- Licht von oben links, Schatten nach rechts unten.
 - Warme, leicht entsättigte Palette: Holzbraun, Strohgelb, Dachziegelrot,
   Moosgrün, Steingrau.
-- Gebäude etwa 96 Pixel breit und 70–95 Pixel hoch, also breiter als hoch.
-- Kleine Symbole etwa 32×32 Pixel.
+- Stil und Farbgebung wie in den angehängten Referenzbildern.
+```
 
-**Zeilen 1–7 (je 4 Varianten desselben Motivs, sichtbar unterschiedlich):**
+Referenzbilder anhängen (aus dem v0.2-Paket):
 
-1. **Hafen** — Steg ins Wasser, Anleger mit Pollern, kleines Boot,
-   gestapelte Kisten und Fässer, Bootshaus mit Schindeldach
+| Datei | wofür |
+| --- | --- |
+| `assets/buildings/warehouse/warehouse_01.png` | Gebäudestil, Dach, Proportion |
+| `assets/buildings/sawmill/sawmill_01.png` | Gebäude am Wasser |
+| `assets/terrain/grass_01.png` | Bodenpalette |
+| `assets/trees/pine_01.png` | Vegetationsstil |
+| `assets/units/soldier_01.png` | Figurenstil und Größenverhältnis |
+
+## Was gebraucht wird
+
+Je Motiv **4 Varianten**, also vier getrennte Bilder mit demselben Prompt
+plus einem Variantenhinweis ("andere Dachfarbe", "andere Anordnung").
+
+### Gebäude — fehlen komplett
+
+1. **Hafen** — Holzsteg ins Wasser, Anleger mit Pollern, Bootshaus,
+   gestapelte Kisten und Fässer, Netze
 2. **Steinbruch** — Abbaugrube mit behauenen Steinblöcken, Holzkran,
-   Loren, Steinstaub, Werkzeug an der Wand
-3. **Bergwerk** — Stolleneingang im Fels, Holzverbau am Eingang,
-   Loren auf Schienen, Erzhaufen
-4. **Mühle** — Windmühle mit Flügeln bzw. Wassermühle mit Rad,
-   Mehlsäcke davor
-5. **Bäckerei** — Fachwerkhaus mit Steinofen und rauchendem Schornstein,
-   Brotregal
-6. **Fischerhütte** — kleine Hütte am Ufer, Netze zum Trocknen,
-   Holzgestelle, Fischkörbe
-7. **Baustelle** — Gerüst aus Stangen, gestapelte Bretter, halbfertige
-   Mauern; die vier Varianten zeigen zunehmenden Baufortschritt
+   Loren, Werkzeug
+3. **Bergwerk** — Stolleneingang im Fels, Holzverbau, Loren, Erzhaufen
+4. **Fischerhütte** — Hütte am Ufer, Netze zum Trocknen, Fischkörbe
+5. **Mühle** — Windmühle mit Flügeln, Mehlsäcke davor
+6. **Bäckerei** — Fachwerkhaus mit Steinofen und rauchendem Schornstein
 
-**Zeile 8 — vier kleine Warensymbole, je 32×32, freistehend:**
-Fisch, Brotlaib, Mehlsack, Getreidegarbe.
+### Schiffe — fehlen komplett
 
-**Zeile 9 — vier kleine Warensymbole, je 32×32, freistehend:**
-Kohlebrocken, Eisenbarren, Werkzeug (Hammer und Zange), Fleischstück.
+Wichtig: Schiffe brauchen **vier Blickrichtungen** (nach oben, unten,
+links, rechts), nicht vier Gestaltungsvarianten.
 
-Die Reihenfolge ist verbindlich: von links nach rechts und von oben nach
-unten genau wie hier aufgelistet. Keine weiteren Motive oder Leerzellen.
+7. **Handelsschiff** — bauchige Kogge mit einem Segel, Frachtkisten an Deck
+8. **Kleines Kriegsschiff** — schlanker, Schilde am Rumpf, Segel gerefft
 
-## Stilreferenzen aus dem vorhandenen Paket
+### Bodentexturen (Punkt 6)
 
-Die neuen Motive sollen dazu passen. Diese Dateien als Vorlage anhängen:
+Diese als **nahtlos kachelbare Quadrate**, das ist die einzige Ausnahme
+von "ein Motiv pro Bild":
 
-| Datei | Größe | wofür |
-| --- | --- | --- |
-| `src/assets/medieval/buildings/warehouse/warehouse_01.png` | 96×74 | Gebäudestil, Proportion, Dach |
-| `src/assets/medieval/buildings/sawmill/sawmill_02.png` | 96×70 | Gebäude mit Nebenanlage am Wasser |
-| `src/assets/medieval/buildings/lumberjack_hut/lumberjack_hut_01.png` | 96×75 | kleines Wirtschaftsgebäude |
-| `src/assets/medieval/terrain/dirt_01.png` | 32×32 | Bodenpalette |
-| `src/assets/medieval/trees/pine_02.png` | 25×64 | Vegetationsstil |
-| `src/assets/medieval/resources/iron_01.png` | 29×32 | Stil der Warensymbole |
-| `src/assets/medieval/units/worker_01.png` | 18×32 | Figurenstil und Größenverhältnis |
+```
+Erstelle eine NAHTLOS KACHELBARE Bodentextur als Quadrat.
+Links und rechts sowie oben und unten müssen ohne sichtbare Naht
+aneinanderpassen. Kein Rahmen, kein Schatten am Rand, kein Text.
+Gleichmäßige Ausleuchtung ohne Lichtrichtung — sonst entsteht beim
+Kacheln ein Muster.
+Pixel-Art, Draufsicht, Palette wie im Referenzbild.
+```
 
-Alternativ als Gesamtüberblick:
-`texture pack/medieval_texture_pack_v0.1/preview/atlas_reference.png`
-— aber **ohne** dessen Beschriftungen und Panelrahmen nachzubauen.
+Gebraucht werden je 6 Varianten von: **Wiese, Sand, Wasser, Waldboden,
+Fels, getretener Erdboden**.
+
+Die vorhandenen Bodenkacheln sind nicht nahtlos — deshalb liegen sie im
+Spiel nur halbdurchsichtig über einer prozeduralen Grundfarbe. Mit
+nahtlosen Kacheln fiele dieser Umweg weg und der Boden würde deutlich
+klarer.
+
+### Warensymbole
+
+Kleine freistehende Symbole, je 1 Bild: **Fisch, Brot, Mehl, Getreide,
+Kohle, Eisenbarren, Werkzeug, Fleisch**.
+
+## Was schon da ist — nicht nochmal erzeugen
+
+Aus dem v0.2-Paket vorhanden: Wohnhaus, Holzfällerhütte, Sägewerk,
+Lagerhaus, Farm; Eiche und Kiefer; Arbeiter, Holzfäller, Bauer und
+**Soldat** (je 8 Bilder); Kuh, Schaf, Pferd, Huhn; Holz, Stein, Eisen,
+Getreide, Beeren; Brücken; Klippen und Uferkanten; 21 Dekorationen.

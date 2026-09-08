@@ -124,6 +124,26 @@ function doBuild(
 }
 
 /**
+ * Kann dieses Gebaeude gerade bezahlt werden?
+ *
+ * Einzige Wahrheit ueber die Bezahlbarkeit - der Bau-Command UND die
+ * Anzeige im Baumenue fragen hier. Vorher pruefte das Menue nur die
+ * Lagerbestaende und kannte die Ausnahmen nicht: am Spielanfang ist das
+ * Lager leer, also war alles ausser dem kostenlosen Holzfaeller
+ * ausgegraut - obwohl der allererste Bau geschenkt ist.
+ */
+export function canAfford(world: World, type: BuildingType): boolean {
+  const s = world.state;
+  if (s.nextId === 1) return true; // allererster Bau
+  if (type === BuildingType.Storehouse && !hasStorehouse(s)) return true; // Rettung
+  const cost = BUILDING_SPECS[type].cost;
+  for (let g = 0; g < GOOD_COUNT; g++) {
+    if (availableStock(s, g as Good) < cost[g]) return false;
+  }
+  return true;
+}
+
+/**
  * Verfuegbarer Lagerbestand einer Ware ueber alle Lager.
  *
  * Reserviertes zaehlt nicht mit: diese Stuecke sind einem Traeger bereits

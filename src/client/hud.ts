@@ -34,6 +34,8 @@ export interface HudData {
   buildings: number;
   carriers: number;
   stock: StockSummary;
+  /** Welche Bauarten gerade bezahlbar sind - kommt aus der Simulation. */
+  affordable: Record<number, boolean>;
   seed: number;
   saved: string;
   /** Ankerkachel der eigenen Siedlung, oder null wenn noch nichts steht. */
@@ -223,7 +225,7 @@ export class Hud {
 
   update(d: HudData): void {
     this.updateResources(d.stock);
-    this.updateAffordable(d.stock);
+    this.updateAffordable(d.affordable);
     this.updateCompass(d);
     if (this.showDetails) this.updateStatus(d);
   }
@@ -234,8 +236,8 @@ export class Hud {
    * Ohne das passiert beim Tippen einfach nichts - der Command wird
    * stillschweigend verworfen, und man sucht den Fehler auf der Karte.
    */
-  private updateAffordable(stock: StockSummary): void {
-    const key = stock.stored.join(',');
+  private updateAffordable(affordable: Record<number, boolean>): void {
+    const key = Object.entries(affordable).map(([k, v]) => k + (v ? '1' : '0')).join();
     if (key === this.lastAffordKey) return;
     this.lastAffordKey = key;
 
@@ -244,13 +246,9 @@ export class Hud {
       const tile = this.buttons.get(entry.mode);
       const type = BUILD_TYPE[entry.mode];
       if (!tile || type === undefined) continue;
-      const cost = BUILDING_SPECS[type].cost;
-      let affordable = true;
-      for (let g = 0; g < GOOD_COUNT; g++) {
-        if (stock.stored[g] < cost[g]) affordable = false;
-      }
-      tile.classList.toggle('is-poor', !affordable);
-      tile.title = affordable ? '' : 'Nicht genug im Lager';
+      const ok = affordable[type] !== false;
+      tile.classList.toggle('is-poor', !ok);
+      tile.title = ok ? '' : 'Nicht genug im Lager';
     }
   }
 

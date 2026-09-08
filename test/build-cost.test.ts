@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { applyCommand } from '../src/sim/commands';
+import { applyCommand, canAfford } from '../src/sim/commands';
 import { createWorld, setTile, totalStock, type World } from '../src/sim/state';
 import { Tile } from '../src/sim/terrain';
 import { step } from '../src/sim/tick';
@@ -126,6 +126,57 @@ describe('Baukosten', () => {
 
     expect(totalStock(world)[Good.Plank]).toBeGreaterThan(0);
     expect(world.state.terrainOverride.size, 'Wald wurde geschlagen').toBeGreaterThan(0);
+  });
+});
+
+describe('Bezahlbarkeit', () => {
+  it('erlaubt am Spielanfang JEDE Bauart', () => {
+    const world = flatWorld();
+    // Das Lager ist noch leer - aber der allererste Bau ist geschenkt.
+    // Das Baumenue fragt canAfford; ohne die Ausnahme war dort alles
+    // ausser dem kostenlosen Holzfaeller ausgegraut und man kam nicht ins
+    // Spiel hinein.
+    for (const t of Object.values(BuildingType)) {
+      expect(canAfford(world, t), `Bauart ${t} am Anfang`).toBe(true);
+    }
+  });
+
+  it('sperrt danach, was der Vorrat nicht hergibt', () => {
+    const world = flatWorld();
+    applyCommand(world, { t: 'build', bt: BuildingType.Storehouse, x: 0, y: 0 });
+    const lager = [...world.state.buildings.values()][0];
+    lager.input.fill(0);
+
+    expect(canAfford(world, BuildingType.Woodcutter), 'kostenlos').toBe(true);
+    expect(canAfford(world, BuildingType.Quarry), 'braucht Bretter').toBe(false);
+    expect(canAfford(world, BuildingType.Sawmill), 'braucht Holz').toBe(false);
+  });
+
+  it('stimmt mit dem ueberein, was der Command tatsaechlich tut', () => {
+    const world = flatWorld();
+    applyCommand(world, { t: 'build', bt: BuildingType.Storehouse, x: 0, y: 0 });
+    const lager = [...world.state.buildings.values()][0];
+    lager.input.fill(0);
+    lager.input[Good.Plank] = 2;
+
+    // Anzeige und Wirkung duerfen nicht auseinanderlaufen: was das Menue
+    // als baubar zeigt, muss der Command auch bauen.
+    for (const t of [BuildingType.Quarry, BuildingType.Storehouse, BuildingType.Woodcutter]) {
+      const gesagt = canAfford(world, t);
+      const getan = applyCommand(world, { t: 'build', bt: t, x: 6, y: 6 });
+      expect(getan, `Bauart ${t}`).toBe(gesagt);
+      if (getan) applyCommand(world, { t: 'demolish', x: 6, y: 6 });
+    }
+  });
+
+  it('gibt reservierte Ware auch in der Anzeige nicht frei', () => {
+    const world = flatWorld();
+    applyCommand(world, { t: 'build', bt: BuildingType.Storehouse, x: 0, y: 0 });
+    const lager = [...world.state.buildings.values()][0];
+    lager.input.fill(0);
+    lager.input[Good.Plank] = 2;
+    lager.reserved[Good.Plank] = 2;
+    expect(canAfford(world, BuildingType.Quarry)).toBe(false);
   });
 });
 
