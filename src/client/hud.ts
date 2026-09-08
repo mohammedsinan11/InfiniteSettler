@@ -36,6 +36,8 @@ export interface HudData {
   stock: StockSummary;
   seed: number;
   saved: string;
+  /** Ankerkachel der eigenen Siedlung, oder null wenn noch nichts steht. */
+  home: { x: number; y: number } | null;
 }
 
 /** Welche Ware welches Sprite bekommt. Nicht jede hat eines. */
@@ -59,10 +61,15 @@ export class Hud {
   private showDetails = window.innerWidth >= NARROW;
   private lastResKey = '';
 
+  private compass: HTMLButtonElement;
+  private compassArrow: HTMLElement;
+  private compassText: HTMLElement;
+
   constructor(
     private onMode: (m: Mode) => void,
     onNewWorld: () => void,
     onReset: () => void,
+    onRecenter: () => void,
   ) {
     injectStyles();
 
@@ -115,7 +122,18 @@ export class Hud {
     this.admin.appendChild(mkButton('Neue Welt', onNewWorld));
     this.admin.appendChild(mkButton('Spielstand loeschen', onReset));
 
-    document.body.append(this.res, this.status, this.sheet, this.admin, bar);
+    // Kompass: auf einer unendlichen Karte verliert man die eigene
+    // Siedlung sonst und findet sie nie wieder. Der Pfeil zeigt dorthin,
+    // ein Tipp springt hin.
+    this.compass = document.createElement('button');
+    this.compass.className = 'is-compass';
+    this.compass.title = 'Zur Siedlung';
+    this.compassArrow = el('span', 'is-needle');
+    this.compassText = el('span', 'is-dist');
+    this.compass.append(this.compassArrow, this.compassText);
+    this.compass.addEventListener('click', onRecenter);
+
+    document.body.append(this.res, this.status, this.sheet, this.admin, this.compass, bar);
     window.addEventListener('keydown', (e) => {
       if (e.key.toLowerCase() === 'i') this.toggleDetails();
     });
@@ -203,7 +221,34 @@ export class Hud {
 
   update(d: HudData): void {
     this.updateResources(d.stock);
+    this.updateCompass(d);
     if (this.showDetails) this.updateStatus(d);
+  }
+
+  private updateCompass(d: HudData): void {
+    if (!d.home) {
+      this.compass.hidden = true;
+      return;
+    }
+    const dx = d.home.x - d.camX;
+    const dy = d.home.y - d.camY;
+    const dist = Math.hypot(dx, dy);
+    this.compass.hidden = false;
+    // Steht man praktisch schon da, zeigt der Pfeil nur noch herum -
+    // dann lieber einen Punkt.
+    if (dist < 3) {
+      this.compassArrow.style.transform = 'none';
+      this.compassArrow.classList.add('is-here');
+      this.compassText.textContent = 'hier';
+      return;
+    }
+    this.compassArrow.classList.remove('is-here');
+    // atan2 zaehlt gegen den Uhrzeigersinn ab der x-Achse, CSS dreht im
+    // Uhrzeigersinn ab "oben" - daher der Versatz um 90 Grad.
+    const deg = (Math.atan2(dy, dx) * 180) / Math.PI + 90;
+    this.compassArrow.style.transform = `rotate(${deg.toFixed(1)}deg)`;
+    this.compassText.textContent =
+      dist >= 1000 ? `${(dist / 1000).toFixed(1)}k` : `${Math.round(dist)}`;
   }
 
   private updateResources(s: StockSummary): void {
@@ -348,6 +393,31 @@ function injectStyles(): void {
     .is-row { display: flex; gap: 12px; justify-content: space-between; }
     .is-row span:first-child { color: #7f8c99; }
     .is-hash { color: #7fd1a5; }
+
+    .is-compass {
+      position: fixed; right: 10px; bottom: 70px; z-index: 3;
+      width: 54px; height: 54px; border-radius: 50%;
+      background: rgba(12,18,24,0.86);
+      border: 1px solid rgba(255,255,255,0.14);
+      backdrop-filter: blur(6px); cursor: pointer;
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; gap: 1px; padding: 0;
+      color: #cfd8e3; font: inherit;
+    }
+    .is-compass:hover { background: #24343f; }
+    .is-needle {
+      width: 0; height: 0;
+      border-left: 7px solid transparent;
+      border-right: 7px solid transparent;
+      border-bottom: 15px solid #e8b04b;
+      transition: transform 0.12s linear;
+    }
+    .is-needle.is-here {
+      border: none; width: 9px; height: 9px; border-radius: 50%;
+      background: #7fd1a5;
+    }
+    .is-dist { font-size: 10px; color: #93a1af; font-variant-numeric: tabular-nums; }
+    .is-compass[hidden] { display: none; }
 
     @media (pointer: coarse) { .is-btn { min-height: 46px; } }
     @media (max-width: 720px) {

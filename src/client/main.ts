@@ -36,6 +36,9 @@ const hud = new Hud(
   (m) => input.setMode(m),
   () => void newWorld((Math.random() * 0x7fffffff) | 0),
   () => void resetSave(),
+  () => {
+    if (!centerOnSettlement()) centerOnLand();
+  },
 );
 input.onModeChange = (m) => hud.setMode(m);
 input.setMode(Mode.Pan);
@@ -98,6 +101,20 @@ async function resetSave(): Promise<void> {
  * neu bestimmt werden. Ohne das startet man auf (0,0) und schaut auf Ozean,
  * waehrend die Siedlung ausserhalb des Bildes liegt.
  */
+/** Ankerkachel der eigenen Siedlung: erstes Lager, sonst erstes Gebaeude. */
+function findHome(): { x: number; y: number } | null {
+  let home: { x: number; y: number } | null = null;
+  let homeId = Infinity;
+  for (const b of world.state.buildings.values()) {
+    const preferred = b.type === BuildingType.Storehouse;
+    if (home !== null && !preferred) continue;
+    if (preferred && b.id > homeId) continue;
+    home = { x: b.x, y: b.y };
+    if (preferred) homeId = b.id;
+  }
+  return home;
+}
+
 function centerOnSettlement(): boolean {
   let home: { x: number; y: number } | null = null;
   let homeId = Infinity;
@@ -242,6 +259,7 @@ function updateHud(): void {
     stock: stockSummary(world),
     seed: world.state.seed,
     saved: saveState,
+    home: findHome(),
   });
 }
 

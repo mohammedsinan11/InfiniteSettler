@@ -12,13 +12,13 @@
  */
 
 import { HEIGHT_SHIFT, heightIndex } from '../sim/chunks';
-import { CHUNK_BITS, CHUNK_SIZE, chunkKey, parseKey, tileKey } from '../sim/coords';
+import { CHUNK_BITS, CHUNK_SIZE, NEIGHBORS, chunkKey, parseKey, tileKey } from '../sim/coords';
 import { hash2i } from '../sim/hash';
 import { FP_ONE } from '../sim/fixed';
 import { buildingIdAt, hasRoad, type World } from '../sim/state';
 import { Tile, waterDepth } from '../sim/terrain';
 import { BUILDING_SPECS, GOOD_COUNT, type Building, type Carrier } from '../sim/types';
-import type { CarrierDirection, GameAssets } from './assets';
+import type { CarrierDirection, GameAssets, TerrainSprite } from './assets';
 import type { Camera } from './camera';
 import {
   BUILDING_COLOR,
@@ -65,6 +65,23 @@ const RESOURCE_SEED = 0x315ca77d | 0;
 const RELIEF_REF = 380;
 const RELIEF_GAIN = 0.023;
 const RELIEF_MAX = 22;
+
+/**
+ * Welche Bildergruppe eine Kachelart bekommt.
+ *
+ * Bewusst eine Tabelle und kein switch: Terrainarten und Bildergruppen
+ * sind zwei getrennte Dinge, und welche zu welcher passt, ist eine
+ * Einstellung. Das Grafikpaket hat zum Beispiel keinen Felsboden - dafuer
+ * traegt der Erdboden am besten.
+ */
+const TILE_SPRITE: Record<Tile, TerrainSprite> = {
+  [Tile.Water]: 'water',
+  [Tile.Sand]: 'sand',
+  [Tile.Grass]: 'grass',
+  [Tile.Forest]: 'forest_ground',
+  [Tile.Stone]: 'dirt',
+  [Tile.Mountain]: 'snow',
+};
 
 interface Ghost {
   px: number;
@@ -320,7 +337,10 @@ export class Renderer {
     g.imageSmoothingEnabled = false;
     for (let ly = 0; ly < CHUNK_SIZE; ly++) {
       for (let lx = 0; lx < CHUNK_SIZE; lx++) {
-        const variants = this.terrainImages(tiles[(ly << CHUNK_BITS) | lx] as Tile);
+        const blend = this.blendSprite(tiles, lx, ly);
+        const variants = blend
+          ? this.assets.terrain[blend]
+          : this.terrainImages(tiles[(ly << CHUNK_BITS) | lx] as Tile);
         if (variants.length === 0) continue;
         const hash = hash2i(this.textureSeed, ox + lx, oy + ly) >>> 0;
         g.drawImage(
@@ -335,20 +355,35 @@ export class Renderer {
   }
 
   private terrainImages(tile: Tile): HTMLImageElement[] {
-    switch (tile) {
-      case Tile.Water:
-        return this.assets.terrain.water;
-      case Tile.Sand:
-        return this.assets.terrain.sand;
-      case Tile.Grass:
-        return this.assets.terrain.grass;
-      case Tile.Forest:
-        return this.assets.terrain.forest_ground;
-      case Tile.Stone:
-        return this.assets.terrain.dirt;
-      case Tile.Mountain:
-        return this.assets.terrain.snow;
+    return this.assets.terrain[TILE_SPRITE[tile]];
+  }
+
+  /**
+   * Boden am Rand einer anderen Terrainart.
+   *
+   * Gras direkt neben Wald bekommt den Waldboden, Gras neben Fels den
+   * Erdboden. Das ist kein echter Uebergangskachelsatz - dafuer muesste
+   * das Grafikpaket Kanten mitbringen -, nimmt der Grenze aber den harten
+   * Farbsprung und laesst Waldraender bewachsen wirken.
+   */
+  private blendSprite(tiles: Uint8Array, lx: number, ly: number): TerrainSprite | null {
+    if (tiles[(ly << CHUNK_BITS) | lx] !== Tile.Grass) return null;
+    let forest = 0;
+    let rocky = 0;
+    for (const [dx, dy] of NEIGHBORS) {
+      const nx = lx + dx;
+      const ny = ly + dy;
+      // Chunkrand: der Nachbar liegt im Nachbarchunk. Ihn nachzuschlagen
+      // waere teuer; die fehlende Mischung faellt an einer einzelnen
+      // Kachelreihe nicht auf.
+      if (nx < 0 || ny < 0 || nx >= CHUNK_SIZE || ny >= CHUNK_SIZE) continue;
+      const t = tiles[(ny << CHUNK_BITS) | nx];
+      if (t === Tile.Forest) forest++;
+      else if (t === Tile.Stone || t === Tile.Mountain) rocky++;
     }
+    if (forest >= 2) return 'forest_ground';
+    if (rocky >= 2) return 'dirt';
+    return null;
   }
 
   /** Haelt den Cache klein: alles weit ausserhalb des Sichtfelds fliegt raus. */
