@@ -336,123 +336,149 @@ const row = (k: string, v: string): string =>
 function injectStyles(): void {
   const css = document.createElement('style');
   css.textContent = `
+    /*
+     * Holz und Pergament statt dunklem Blaugrau.
+     *
+     * Die vorige Fassung war ein glasiger Dunkelmodus - technisch sauber,
+     * aber aus einer anderen Welt als die Sprites. Die Farben hier sind
+     * dieselben, die auch in den Gebaeuden vorkommen: Balkenbraun,
+     * Strohgelb, Dachziegelrot. Serifenschrift statt Monospace aus
+     * demselben Grund; Zahlen bleiben tabellarisch, damit sie beim
+     * Hochzaehlen nicht springen.
+     */
+    :root {
+      --holz-dunkel: #2b1f15;
+      --holz: #4a3626;
+      --holz-hell: #6d5138;
+      --pergament: #e6d7b4;
+      --pergament-tief: #cbb98f;
+      --tinte: #3a2b1a;
+      --gold: #c8952a;
+    }
+
     .is-bar {
       position: fixed; left: 0; right: 0; bottom: 0; z-index: 3;
       display: flex; gap: 6px; padding: 8px;
       justify-content: center; flex-wrap: wrap;
-      background: rgba(12,18,24,0.86);
-      border-top: 1px solid rgba(255,255,255,0.10);
-      backdrop-filter: blur(6px);
+      background: linear-gradient(180deg, #3a2b1d 0%, var(--holz-dunkel) 100%);
+      border-top: 3px solid var(--holz-hell);
+      box-shadow: 0 -2px 0 rgba(0,0,0,0.35);
       padding-bottom: max(8px, env(safe-area-inset-bottom));
+      font-family: Georgia, 'Iowan Old Style', 'Times New Roman', serif;
     }
     .is-btn {
-      font: inherit; color: #cfd8e3; background: #1b2833;
-      border: 1px solid rgba(255,255,255,0.10); border-radius: 6px;
-      padding: 9px 14px; min-height: 42px; cursor: pointer;
+      font: inherit; font-size: 14px; color: var(--tinte);
+      background: linear-gradient(180deg, var(--pergament) 0%, var(--pergament-tief) 100%);
+      border: 2px solid var(--holz-hell); border-radius: 4px;
+      padding: 8px 14px; min-height: 42px; cursor: pointer;
       display: inline-flex; align-items: center; gap: 6px;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.45);
+      text-shadow: 0 1px 0 rgba(255,255,255,0.35);
     }
-    .is-btn:hover { background: #24343f; }
-    .is-btn.is-active { background: #33608c; border-color: #5b93c4; color: #fff; }
-    .is-btn.is-alt { color: #9aa7b4; }
+    .is-btn:hover { background: #f0e4c6; }
+    .is-btn.is-active {
+      background: linear-gradient(180deg, #e8bf62 0%, var(--gold) 100%);
+      border-color: #8a6410; color: #2b1f0a;
+    }
+    .is-btn.is-alt { color: #5b452c; }
     .is-build-icon { height: 26px; image-rendering: pixelated; }
 
-    /* Bau-Overlay: nur auf Tippen sichtbar, direkt ueber der Leiste. */
-    .is-sheet {
-      position: fixed; left: 8px; right: 8px; bottom: 68px; z-index: 3;
+    .is-sheet, .is-admin {
+      position: fixed; left: 8px; right: 8px; bottom: 70px; z-index: 3;
       display: none; gap: 6px; flex-wrap: wrap; justify-content: center;
-      padding: 8px; border-radius: 10px;
-      background: rgba(12,18,24,0.94);
-      border: 1px solid rgba(255,255,255,0.12);
-      backdrop-filter: blur(8px);
+      padding: 10px; border-radius: 6px;
+      background: linear-gradient(180deg, #3a2b1d 0%, var(--holz-dunkel) 100%);
+      border: 3px solid var(--holz-hell);
+      box-shadow: 0 6px 18px rgba(0,0,0,0.45);
+      font-family: Georgia, 'Iowan Old Style', 'Times New Roman', serif;
     }
-    .is-sheet.is-open { display: flex; }
+    .is-admin { z-index: 4; }
+    .is-sheet.is-open, .is-admin.is-open { display: flex; }
+
     .is-tile {
-      font: inherit; color: #cfd8e3; background: #1b2833;
-      border: 1px solid rgba(255,255,255,0.10); border-radius: 8px;
-      padding: 8px 6px 6px; width: 104px; cursor: pointer;
+      font: inherit; color: var(--tinte);
+      background: linear-gradient(180deg, var(--pergament) 0%, var(--pergament-tief) 100%);
+      border: 2px solid var(--holz-hell); border-radius: 5px;
+      padding: 8px 6px 6px; width: 108px; cursor: pointer;
       display: flex; flex-direction: column; align-items: center; gap: 2px;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.45);
     }
-    .is-tile:hover { background: #24343f; }
-    .is-tile.is-active { background: #33608c; border-color: #5b93c4; color: #fff; }
-    .is-tile img { height: 46px; image-rendering: pixelated; }
-    .is-noicon { height: 46px; }
-    .is-tile-name { font-size: 12px; }
-    .is-tile-cost { font-size: 11px; color: #9fb0c0; display: flex; align-items: center; gap: 2px; }
-    .is-free { color: #7fd1a5; }
-    .is-tile.is-poor { opacity: 0.42; }
-    .is-tile.is-poor .is-tile-cost { color: #d98b8b; }
-
-    .is-admin {
-      position: fixed; left: 8px; right: 8px; bottom: 68px; z-index: 4;
-      display: none; gap: 6px; flex-wrap: wrap; justify-content: center;
-      padding: 8px; border-radius: 10px;
-      background: rgba(12,18,24,0.94);
-      border: 1px solid rgba(255,255,255,0.12);
+    .is-tile:hover { background: #f0e4c6; }
+    .is-tile.is-active {
+      background: linear-gradient(180deg, #e8bf62 0%, var(--gold) 100%);
+      border-color: #8a6410;
     }
-    .is-admin.is-open { display: flex; }
+    .is-tile img { height: 52px; image-rendering: pixelated; }
+    .is-noicon { height: 52px; }
+    .is-tile-name { font-size: 13px; }
+    .is-tile-cost { font-size: 12px; color: #5b452c; display: flex; align-items: center; gap: 2px; }
+    .is-free { color: #4a7a35; font-style: italic; }
+    .is-tile.is-poor { opacity: 0.45; }
+    .is-tile.is-poor .is-tile-cost { color: #9c3b2e; }
 
-    /* Warenstreifen oben - schmal und immer sichtbar. */
     .is-res {
       position: fixed; top: 0; right: 0; z-index: 2;
-      display: flex; gap: 4px; padding: 6px;
+      display: flex; gap: 5px; padding: 6px;
+      font-family: Georgia, 'Iowan Old Style', 'Times New Roman', serif;
     }
     .is-card {
-      display: flex; align-items: center; gap: 4px;
-      padding: 4px 8px; border-radius: 6px;
-      background: rgba(12,18,24,0.86);
-      border: 1px solid rgba(255,255,255,0.10);
-      backdrop-filter: blur(6px); cursor: default;
+      display: flex; align-items: center; gap: 5px;
+      padding: 4px 9px; border-radius: 4px;
+      background: linear-gradient(180deg, var(--pergament) 0%, var(--pergament-tief) 100%);
+      border: 2px solid var(--holz-hell); cursor: default;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.45);
     }
     .is-mark {
-      width: 16px; height: 16px; border-radius: 2px; flex: 0 0 auto;
+      width: 18px; height: 18px; flex: 0 0 auto;
       image-rendering: pixelated; object-fit: contain;
     }
-    i.is-mark { box-shadow: inset 0 0 0 1px rgba(0,0,0,0.45); }
-    .is-card-n { font-size: 14px; font-weight: 700; color: #f0f4f8;
+    i.is-mark { border-radius: 2px; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.45); }
+    .is-card-n { font-size: 15px; font-weight: 700; color: var(--tinte);
                  font-variant-numeric: tabular-nums; }
-    .is-card-sub { color: #6f8497; font-size: 11px; }
-
-    .is-status {
-      position: fixed; left: 8px; top: 8px; z-index: 2;
-      padding: 8px 10px; min-width: 260px;
-      background: rgba(12,18,24,0.82);
-      border: 1px solid rgba(255,255,255,0.08); border-radius: 6px;
-      backdrop-filter: blur(6px); pointer-events: none;
-    }
-    .is-row { display: flex; gap: 12px; justify-content: space-between; }
-    .is-row span:first-child { color: #7f8c99; }
-    .is-hash { color: #7fd1a5; }
+    .is-card-sub { color: #7a6242; font-size: 11px; }
 
     .is-compass {
-      position: fixed; right: 10px; bottom: 70px; z-index: 3;
+      position: fixed; right: 10px; bottom: 74px; z-index: 3;
       width: 54px; height: 54px; border-radius: 50%;
-      background: rgba(12,18,24,0.86);
-      border: 1px solid rgba(255,255,255,0.14);
-      backdrop-filter: blur(6px); cursor: pointer;
+      background: radial-gradient(circle at 40% 35%, #f0e4c6 0%, var(--pergament-tief) 75%);
+      border: 3px solid var(--holz-hell); cursor: pointer;
       display: flex; flex-direction: column; align-items: center;
       justify-content: center; gap: 1px; padding: 0;
-      color: #cfd8e3; font: inherit;
+      color: var(--tinte); font-family: Georgia, serif;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.4);
     }
-    .is-compass:hover { background: #24343f; }
+    .is-compass:hover { background: #f4e9cf; }
     .is-needle {
       width: 0; height: 0;
       border-left: 7px solid transparent;
       border-right: 7px solid transparent;
-      border-bottom: 15px solid #e8b04b;
+      border-bottom: 15px solid #9c3b2e;
       transition: transform 0.12s linear;
     }
     .is-needle.is-here {
       border: none; width: 9px; height: 9px; border-radius: 50%;
-      background: #7fd1a5;
+      background: #4a7a35;
     }
-    .is-dist { font-size: 10px; color: #93a1af; font-variant-numeric: tabular-nums; }
+    .is-dist { font-size: 10px; color: #6b5236; font-variant-numeric: tabular-nums; }
     .is-compass[hidden] { display: none; }
+
+    .is-status {
+      position: fixed; left: 8px; top: 8px; z-index: 2;
+      padding: 8px 10px; min-width: 260px;
+      background: rgba(43,31,21,0.88);
+      border: 2px solid var(--holz-hell); border-radius: 4px;
+      color: var(--pergament); pointer-events: none;
+      font: 12px/1.5 ui-monospace, Menlo, monospace;
+    }
+    .is-row { display: flex; gap: 12px; justify-content: space-between; }
+    .is-row span:first-child { color: #a08a68; }
+    .is-hash { color: var(--gold); }
 
     @media (pointer: coarse) { .is-btn { min-height: 46px; } }
     @media (max-width: 720px) {
-      .is-btn { padding: 9px 10px; }
-      .is-tile { width: 88px; }
-      .is-tile img { height: 38px; }
+      .is-btn { padding: 8px 10px; font-size: 13px; }
+      .is-tile { width: 92px; }
+      .is-tile img { height: 42px; }
       .is-status { display: none; }
     }
   `;

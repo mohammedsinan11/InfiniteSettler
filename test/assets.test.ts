@@ -24,7 +24,7 @@ describe('Grafikmanifest', () => {
     for (const [name, list] of groups) {
       expect(new Set(list).size, `${name} enthaelt Doppelte`).toBe(list.length);
     }
-    expect(paths.length).toBe(105);
+    expect(paths.length).toBe(106);
 
     for (const path of paths) {
       const file = new URL(`../src/assets/medieval/${path}`, import.meta.url);
