@@ -236,8 +236,13 @@ function classify(
   height: number,
 ): Tile {
   if (height < H_WATER) return Tile.Water;
-  if (height < H_SAND) return Tile.Sand;
+  // Fluesse VOR dem Sandsaum pruefen.
+  //
+  // Sonst legt sich der Uferstreifen quer ueber die Muendung und
+  // unterbricht den Fluss genau dort, wo er ins Meer laufen soll - der
+  // Wasserweg endet dann kurz vor der Kueste im Sand.
   if (isRiver(seed, x, y, height)) return Tile.Water;
+  if (height < H_SAND) return Tile.Sand;
 
   // 4. Gebirge aus Grat UND Hoehe kombiniert.
   //

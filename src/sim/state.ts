@@ -233,7 +233,29 @@ export function canPlaceBuilding(
   if (spec.placement === Placement.Coast && !touchesWater(world, type, x, y)) {
     return false;
   }
+  if (spec.placement === Placement.NearResource && !hasResourceNearby(world, type, x, y)) {
+    return false;
+  }
   return true;
+}
+
+/** Liegt die Rohstoffkachel der Bauart in Erntereichweite? */
+export function hasResourceNearby(
+  world: World,
+  type: BuildingType,
+  x: number,
+  y: number,
+): boolean {
+  const spec = BUILDING_SPECS[type];
+  if (spec.harvestTile < 0) return true;
+  const r = spec.harvestRadius;
+  for (let dy = -r; dy <= r; dy++) {
+    for (let dx = -r; dx <= r; dx++) {
+      if (dx * dx + dy * dy > r * r) continue;
+      if (getTile(world, x + dx, y + dy) === spec.harvestTile) return true;
+    }
+  }
+  return false;
 }
 
 export function makeBuilding(

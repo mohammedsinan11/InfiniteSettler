@@ -1,0 +1,47 @@
+# Generated Textures v1
+
+Dieser Satz wurde mit dem eingebauten OpenAI-ImageGen-Modell als einzelne
+Bilddateien erzeugt. Es wurden keine Atlas- oder Uebersichtsblaetter als Quelle
+verwendet.
+
+## Inhalt
+
+- 24 Gebaeude: Hafen, Steinbruch, Bergwerk, Fischerhuette, Muehle und
+  Baeckerei, jeweils vier Varianten
+- 8 Schiffe: Handelsschiff und kleines Kriegsschiff, jeweils in den vier
+  Blickrichtungen `up`, `down`, `left` und `right`
+- 36 Bodentexturen: Wiese, Sand, Wasser, Waldboden, Fels und Erdboden,
+  jeweils sechs Varianten
+- 8 Warensymbole: Fisch, Brot, Mehl, Getreide, Kohle, Eisenbarren, Werkzeug
+  und Fleisch
+
+Die hochaufgeloesten ImageGen-Quellen liegen in den Kategorieordnern. Die
+kompakten Fassungen unter `game-ready/` wurden aus diesen Quellen erzeugt:
+
+- Gebaeude: 192 x 192 Pixel, transparent
+- Schiffe: 128 x 128 Pixel, transparent
+- Warensymbole: 32 x 32 Pixel, transparent
+- Bodentexturen: 32 x 32 Pixel, deckend und an allen vier Kanten pixelgenau
+  nahtlos
+
+## Prompt-Regeln
+
+Gemeinsamer Stil: warmes, handgemaltes Pixel-Art fuer ein mittelalterliches
+Aufbauspiel, orthografische Spielansicht, klare Silhouette und lesbare Details.
+
+Gebaeude und Symbole wurden mit diesen verbindlichen Ausschluessen erzeugt:
+ein einzelnes Motiv, echte Transparenz, keine Beschriftung, kein Rahmen, kein
+Raster, kein Atlas und kein Uebersichtsblatt. Bei den Schiffen wurde zusaetzlich
+dieselbe Konstruktion und Beladung fuer alle vier Blickrichtungen verlangt.
+
+Fuer jede Bodentextur wurde ein einzelnes, vollflaechiges Quadrat ohne Objekte,
+Rahmen oder Text verlangt, dessen Details ueber gegenueberliegende Kanten
+fortlaufen. Die Aufbereitung in `tools/prepare-generated-textures.mjs` erzwingt
+zusaetzlich mathematisch identische Gegenkanten und laesst die Quellen
+unveraendert.
+
+## Erneute Aufbereitung
+
+```sh
+node tools/prepare-generated-textures.mjs
+```

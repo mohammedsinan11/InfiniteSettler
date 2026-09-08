@@ -88,10 +88,16 @@
       "buildings/warehouse/warehouse_02.png"
     ],
     "harbor": [
-      "buildings/harbor/harbor_01.png"
+      "buildings/harbor/harbor_01.png",
+      "buildings/harbor/harbor_02.png",
+      "buildings/harbor/harbor_03.png",
+      "buildings/harbor/harbor_04.png"
     ],
     "quarry": [
-      "buildings/quarry/quarry_01.png"
+      "buildings/quarry/quarry_01.png",
+      "buildings/quarry/quarry_02.png",
+      "buildings/quarry/quarry_03.png",
+      "buildings/quarry/quarry_04.png"
     ]
   },
   "trees": [
@@ -142,6 +148,9 @@
     "stone": [
       "resources/stone_01.png",
       "resources/stone_02.png"
+    ],
+    "fish": [
+      "goods/fish.png"
     ]
   },
   "resources": {

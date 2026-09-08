@@ -50,6 +50,14 @@ export const Placement = {
   Land: 0,
   /** Braucht mindestens eine angrenzende Wasserkachel. */
   Coast: 1,
+  /**
+   * Braucht die eigene Rohstoffkachel (harvestTile) in Reichweite.
+   *
+   * Ohne diese Regel liess sich ein Steinbruch mitten auf der Wiese
+   * setzen - er stand dann da und foerderte nie etwas, ohne dass man
+   * erfuhr warum.
+   */
+  NearResource: 2,
 } as const;
 export type Placement = (typeof Placement)[keyof typeof Placement];
 
@@ -160,7 +168,7 @@ export const BUILDING_SPECS: Record<BuildingType, BuildingSpec> = {
     // Steinbruch versiegt also wie der Holzfaeller.
     harvestConsumes: true,
     footprint: 2,
-    placement: Placement.Land,
+    placement: Placement.NearResource,
     isSink: false,
   },
   [BuildingType.Harbor]: {

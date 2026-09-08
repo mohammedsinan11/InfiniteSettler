@@ -7,3 +7,12 @@ texture pack/
 
 # Maschinenlokale Claude-Code-Einstellungen
 .claude/settings.local.json
+
+# Hochaufgeloeste ImageGen-Quellen bleiben lokal; im Spiel liegen die
+# aufbereiteten Fassungen unter src/assets.
+art/generated-textures-v1/buildings/
+art/generated-textures-v1/ships/
+art/generated-textures-v1/terrain/
+art/generated-textures-v1/roads/
+art/generated-textures-v1/ocean/
+art/generated-textures-v1/goods/

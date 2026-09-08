@@ -47,6 +47,7 @@ const GOOD_ICON: Partial<Record<Good, GoodSprite>> = {
   [Good.Wood]: 'wood',
   [Good.Plank]: 'plank',
   [Good.Stone]: 'stone',
+  [Good.Fish]: 'fish',
 };
 
 const NARROW = 720;

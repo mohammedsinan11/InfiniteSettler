@@ -43,6 +43,8 @@ const CHUNK_BUILD_MS = 8;
 const UNLOADED_COLOR = '#0d1319';
 /** Detailaufloesung des statischen Terrain-Chunk-Canvas. */
 const TERRAIN_PX = 8;
+/** Aufloesung der vorgebackenen Strassenkachel. */
+const ROAD_PX = 32;
 /** 96 Chunks entsprechen rund 96 MiB Canvas-Pixeln statt ueber 500 MiB. */
 const MAX_RENDER_CHUNKS = 96;
 const SCENERY_MIN_ZOOM = 7;
@@ -135,7 +137,7 @@ export class Renderer {
    * Skalierung passieren jetzt einmalig pro Variante, der Chunkaufbau
    * kopiert nur noch 8x8-Bloecke.
    */
-  private detailTiles = new Map<HTMLImageElement, HTMLCanvasElement>();
+  private detailTiles = new Map<string, HTMLCanvasElement>();
   /**
    * Verkleinerte Fassungen der Objektsprites, nach Zweierpotenzen gestuft.
    *
@@ -202,13 +204,14 @@ export class Renderer {
   }
 
   /** Quellzuschnitt und Skalierung einer Terrainvariante, einmalig. */
-  private detailTile(image: HTMLImageElement): HTMLCanvasElement {
-    const cached = this.detailTiles.get(image);
+  private detailTile(image: HTMLImageElement, size = TERRAIN_PX): HTMLCanvasElement {
+    const key = image.src + '@' + size;
+    const cached = this.detailTiles.get(key);
     if (cached) return cached;
 
     const baked = document.createElement('canvas');
-    baked.width = TERRAIN_PX;
-    baked.height = TERRAIN_PX;
+    baked.width = size;
+    baked.height = size;
     const g = baked.getContext('2d');
     if (!g) throw new Error('Detail-Canvas nicht verfuegbar');
     g.imageSmoothingEnabled = true;
@@ -223,9 +226,9 @@ export class Renderer {
       image,
       crop, crop,
       image.naturalWidth - crop * 2, image.naturalHeight - crop * 2,
-      0, 0, TERRAIN_PX, TERRAIN_PX,
+      0, 0, size, size,
     );
-    this.detailTiles.set(image, baked);
+    this.detailTiles.set(key, baked);
     return baked;
   }
 
@@ -501,13 +504,27 @@ export class Renderer {
    *
    * Gebaeude zaehlen als Anschluss - sonst klaffte vor jeder Tuer eine Luecke.
    */
+  /**
+   * Strassen.
+   *
+   * Eine Strasse ist eine volle Kachel Pflaster, kein eingezogenes Band
+   * mehr. Das Band sollte Wege verbinden, machte die Textur aber
+   * matschig: sie wurde auf eine schmalere Flaeche gestaucht und wirkte
+   * dadurch je nach Anschluss anders. Eine durchgehende Kachel ist
+   * schlicht das, was ein gepflasterter Weg ist - und die Nachbarkacheln
+   * setzen sie fort.
+   *
+   * Wo drei oder vier Wege zusammentreffen, kommt eine der
+   * Kreuzungsvorlagen zum Einsatz; die zeigt die Fugen sternfoermig statt
+   * in eine Richtung.
+   */
   private drawRoads(): void {
     const { ctx, cam } = this;
     const z = cam.zoom;
     const v = cam.visibleTiles();
-    const sprites = this.assets.terrain.road;
+    const plain = this.assets.terrain.road.slice(0, 4);
+    const junctions = this.assets.terrain.road.slice(4);
     const state = this.world.state;
-    const inset = Math.max(0.5, z * 0.22);
 
     const connects = (x: number, y: number): boolean => {
       const key = tileKey(x, y);
@@ -518,36 +535,30 @@ export class Renderer {
       const [x, y] = parseKey(key);
       if (x < v.x0 || x > v.x1 || y < v.y0 || y > v.y1) continue;
 
-      const left = connects(x - 1, y) ? 0 : inset;
-      const right = connects(x + 1, y) ? 0 : inset;
-      const up = connects(x, y - 1) ? 0 : inset;
-      const down = connects(x, y + 1) ? 0 : inset;
+      let links = 0;
+      for (const [dx, dy] of NEIGHBORS) if (connects(x + dx, y + dy)) links++;
 
-      const sx = cam.worldToScreenX(x) + left;
-      const sy = cam.worldToScreenY(y) + up;
-      const w = z - left - right;
-      const h = z - up - down;
+      const hash = hash2i(this.textureSeed ^ 0x218bc1, x, y) >>> 0;
+      const set = links >= 3 && junctions.length > 0 ? junctions : plain;
+      const sx = Math.round(cam.worldToScreenX(x));
+      const sy = Math.round(cam.worldToScreenY(y));
+      const sx1 = Math.round(cam.worldToScreenX(x + 1));
+      const sy1 = Math.round(cam.worldToScreenY(y + 1));
 
-      ctx.fillStyle = ROAD_COLOR;
-      ctx.fillRect(sx, sy, w, h);
-      if (sprites.length === 0 || z < 4) continue;
-
-      const image = this.detailTile(
-        sprites[(hash2i(this.textureSeed ^ 0x218bc1, x, y) >>> 0) % sprites.length],
+      if (set.length === 0) {
+        ctx.fillStyle = ROAD_COLOR;
+        ctx.fillRect(sx, sy, sx1 - sx, sy1 - sy);
+        continue;
+      }
+      // Kanten auf ganze Pixel runden wie beim Terrain, sonst blitzt
+      // zwischen zwei Strassenkacheln der Untergrund durch.
+      // 32 statt der 8 Pixel des Chunk-Caches: Strassen werden direkt auf
+      // den Bildschirm gezeichnet, nicht in die verkleinerte Chunkkachel.
+      ctx.drawImage(
+        this.detailTile(set[hash % set.length], ROAD_PX),
+        sx, sy, sx1 - sx, sy1 - sy,
       );
-      // Das Sprite wird immer auf die VOLLE Kachel gezeichnet und nur auf
-      // das Band beschnitten. Vorher wurde stattdessen ein Teilausschnitt
-      // der Vorlage auf das Band gestreckt - dadurch erschien die Textur
-      // je nach Anschluss in anderem Massstab, was die Strasse
-      // verwaschen wirken liess.
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(sx, sy, w, h);
-      ctx.clip();
-      ctx.globalAlpha = 0.92;
-      ctx.drawImage(image, cam.worldToScreenX(x), cam.worldToScreenY(y), z, z);
-      ctx.restore();
-      ctx.globalAlpha = 1;
+      void z;
     }
   }
 
@@ -567,6 +578,13 @@ export class Renderer {
       const cx = c.x / FP_ONE;
       const cy = c.y / FP_ONE;
       if (cx < v.x0 - 1 || cx > v.x1 + 1 || cy < v.y0 - 2 || cy > v.y1 + 1) continue;
+      // Wer auf einer Gebaeudekachel steht, ist drinnen und wird nicht
+      // gezeichnet. Die Sprites sind gut zwei Kacheln hoch, eine Figur im
+      // Grundriss ueberlappt sie also immer - egal wie herum sortiert
+      // wird, sie sah aus, als staende sie auf dem Dach.
+      if (this.world.state.buildingAt.has(tileKey(Math.round(cx), Math.round(cy)))) {
+        continue;
+      }
       const ghost = this.ghosts.get(c.id);
       objects.push({
         kind: 'carrier',
@@ -576,8 +594,15 @@ export class Renderer {
       });
     }
 
+    // Nach dem FUSSPUNKT sortieren, nicht nach der Ankerzeile.
+    //
+    // Ein Gebaeude auf (x,y) steht mit seiner Unterkante auf y+footprint,
+    // ein Traeger auf y+1. Nach der Ankerzeile sortiert landete ein
+    // Traeger, der IM Gebaeude steht, davor - er stand auf dem Dach.
+    // Nach dem Fusspunkt sortiert liegt er dahinter, und sobald er suedlich
+    // heraustritt, davor.
     objects.sort((a, b) =>
-      (a.y - b.y) || (a.x - b.x) || sceneOrder(a.kind) - sceneOrder(b.kind));
+      (footY(a) - footY(b)) || (a.x - b.x) || sceneOrder(a.kind) - sceneOrder(b.kind));
 
     for (const object of objects) {
       switch (object.kind) {
@@ -698,6 +723,13 @@ export class Renderer {
               if (trees.length === 0) continue;
               const hash = hash2i(seed ^ TREE_SEED, x, y) >>> 0;
               if (treeStep > 1 && hash % treeStep !== 0) continue;
+              // Etwas luftiger als "jede Kachel": dicht an dicht kleben die
+              // Kronen aufeinander und der Wald verliert seine Silhouette.
+              if ((hash >>> 20) % 10 < 3) continue;
+              // Neben einer Strasse keine Baeume. Ihre Kronen ragen zwei
+              // Kacheln nach oben und deckten den Weg sonst komplett zu -
+              // die Strasse verschwand im Wald.
+              if (hasOccupants && nearRoad(state, x, y)) continue;
               // Jede Waldkachel bekommt einen Baum - Wald soll als
               // geschlossene Flaeche lesen, nicht als Streuobstwiese.
               // Der Versatz innerhalb der Kachel nimmt dem Ganzen das
@@ -900,6 +932,19 @@ export class Renderer {
 }
 
 const clamp255 = (v: number): number => (v < 0 ? 0 : v > 255 ? 255 : v);
+
+/** Unterkante eines Objekts in Weltkoordinaten. */
+/** Liegt an dieser Kachel oder einer ihrer vier Nachbarn eine Strasse? */
+function nearRoad(state: World['state'], x: number, y: number): boolean {
+  if (state.roads.has(tileKey(x, y))) return true;
+  for (const [dx, dy] of NEIGHBORS) {
+    if (state.roads.has(tileKey(x + dx, y + dy))) return true;
+  }
+  return false;
+}
+
+const footY = (o: SceneObject): number =>
+  o.kind === 'building' ? o.y + BUILDING_SPECS[o.building.type].footprint : o.y + 1;
 
 const sceneOrder = (kind: SceneObject['kind']): number => {
   switch (kind) {

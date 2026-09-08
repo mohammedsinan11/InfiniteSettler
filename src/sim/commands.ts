@@ -106,8 +106,13 @@ function doBuild(
       const cid = s.nextId++;
       const carrier: Carrier = {
         id: cid,
+        // An der VORDERKANTE des Lagers, nicht auf der Ankerkachel.
+        //
+        // Auf dem Anker stehen sie mitten im Gebaeude: der Renderer
+        // sortiert nach Fusspunkt, sie liegen dann hinter dem Haus und ihr
+        // Kopf ragt ueber das Dach. An der Vorderkante stehen sie davor.
         x: (x * FP_ONE) | 0,
-        y: (y * FP_ONE) | 0,
+        y: ((y + BUILDING_SPECS[bt].footprint - 1) * FP_ONE) | 0,
         path: [],
         pathIdx: 0,
         state: CarrierState.Idle,

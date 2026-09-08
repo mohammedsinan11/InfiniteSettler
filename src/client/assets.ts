@@ -164,7 +164,7 @@ export function emptyGameAssets(): GameAssets {
     },
     trees: [],
     resources: { stone: [], mountain: [] },
-    goods: { wood: [], plank: [], stone: [] },
+    goods: { wood: [], plank: [], stone: [], fish: [] },
     scatter: { flowers: [], bushes: [], saplings: [] },
     shore: { cliff: [] },
     carrier: { down: null, left: null, right: null, up: null },

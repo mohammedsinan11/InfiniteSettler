@@ -74,6 +74,22 @@ describe('Platzierung', () => {
   });
 });
 
+describe('Steinbruch', () => {
+  it('laesst sich nur mit Fels in Reichweite setzen', () => {
+    const world = coastWorld();
+    // Reine Grasflaeche: nichts abzubauen.
+    expect(canPlaceBuilding(world, BuildingType.Quarry, 0, 0)).toBe(false);
+
+    for (let y = 4; y <= 6; y++) {
+      for (let x = 4; x <= 6; x++) setTile(world, x, y, Tile.Stone);
+    }
+    // Jetzt liegt Fels im Erntekreis - und der Bau geht.
+    expect(canPlaceBuilding(world, BuildingType.Quarry, 1, 1)).toBe(true);
+    // Weit weg weiterhin nicht.
+    expect(canPlaceBuilding(world, BuildingType.Quarry, -12, -10)).toBe(false);
+  });
+});
+
 describe('Hafen', () => {
   it('fischt, ohne das Wasser aufzubrauchen', () => {
     const world = coastWorld();

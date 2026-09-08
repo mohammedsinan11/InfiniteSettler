@@ -22,6 +22,11 @@ function flatWorld(): World {
   for (let y = -5; y <= 5; y++) {
     for (let x = 16; x <= 28; x++) if (y < 0 || y > 2) setTile(world, x, y, Tile.Forest);
   }
+  // Fels in Reichweite der Steinbruch-Testplaetze: der Steinbruch darf nur
+  // dort stehen, wo es auch etwas abzubauen gibt.
+  for (let y = 2; y <= 5; y++) {
+    for (let x = 9; x <= 12; x++) setTile(world, x, y, Tile.Stone);
+  }
   return world;
 }
 
