@@ -13,6 +13,7 @@ export type TerrainSprite = keyof typeof manifest.terrain;
 export type ResourceSprite = keyof typeof manifest.resources;
 export type GoodSprite = keyof typeof manifest.goods;
 export type ScatterSprite = keyof typeof manifest.scatter;
+export type ShoreSprite = keyof typeof manifest.shore;
 export type CarrierDirection = keyof typeof manifest.carrier;
 
 export interface GameAssets {
@@ -24,6 +25,8 @@ export interface GameAssets {
   goods: Record<GoodSprite, HTMLImageElement[]>;
   /** Streuwerk: Blumen, Buesche, junge Baeume. */
   scatter: Record<ScatterSprite, HTMLImageElement[]>;
+  /** Uferkanten - Felswand unter einer Grasoberkante. */
+  shore: Record<ShoreSprite, HTMLImageElement[]>;
   carrier: Record<CarrierDirection, HTMLImageElement | null>;
   loaded: number;
   missing: number;
@@ -63,7 +66,7 @@ async function loadGroup(paths: readonly string[]): Promise<HTMLImageElement[]> 
 }
 
 export async function loadGameAssets(): Promise<GameAssets> {
-  const [terrainEntries, buildingEntries, treeImages, resourceEntries, goodEntries, scatterEntries, carrierEntries] =
+  const [terrainEntries, buildingEntries, treeImages, resourceEntries, goodEntries, scatterEntries, shoreEntries, carrierEntries] =
     await Promise.all([
       Promise.all(
         Object.entries(manifest.terrain).map(async ([name, paths]) =>
@@ -87,6 +90,10 @@ export async function loadGameAssets(): Promise<GameAssets> {
           [name, await loadGroup(paths)] as const),
       ),
       Promise.all(
+        Object.entries(manifest.shore).map(async ([name, paths]) =>
+          [name, await loadGroup(paths)] as const),
+      ),
+      Promise.all(
         Object.entries(manifest.carrier).map(async ([name, path]) =>
           [name, await loadImage(path)] as const),
       ),
@@ -104,6 +111,7 @@ export async function loadGameAssets(): Promise<GameAssets> {
   const resources = Object.fromEntries(resourceEntries) as GameAssets['resources'];
   const goods = Object.fromEntries(goodEntries) as GameAssets['goods'];
   const scatter = Object.fromEntries(scatterEntries) as GameAssets['scatter'];
+  const shore = Object.fromEntries(shoreEntries) as GameAssets['shore'];
   const carrier = Object.fromEntries(carrierEntries) as GameAssets['carrier'];
 
   const all = [
@@ -113,6 +121,7 @@ export async function loadGameAssets(): Promise<GameAssets> {
     ...Object.values(resources).flat(),
     ...Object.values(goods).flat(),
     ...Object.values(scatter).flat(),
+    ...Object.values(shore).flat(),
     ...Object.values(carrier),
   ];
   const loaded = all.filter((image) => image !== null).length;
@@ -123,6 +132,7 @@ export async function loadGameAssets(): Promise<GameAssets> {
     Object.values(manifest.resources).reduce((n, paths) => n + paths.length, 0) +
     Object.values(manifest.goods).reduce((n, paths) => n + paths.length, 0) +
     Object.values(manifest.scatter).reduce((n, paths) => n + paths.length, 0) +
+    Object.values(manifest.shore).reduce((n, paths) => n + paths.length, 0) +
     Object.keys(manifest.carrier).length;
 
   return {
@@ -132,6 +142,7 @@ export async function loadGameAssets(): Promise<GameAssets> {
     resources,
     goods,
     scatter,
+    shore,
     carrier,
     loaded,
     missing: expected - loaded,
@@ -155,6 +166,7 @@ export function emptyGameAssets(): GameAssets {
     resources: { stone: [], mountain: [] },
     goods: { wood: [], plank: [], stone: [] },
     scatter: { flowers: [], bushes: [], saplings: [] },
+    shore: { cliff: [] },
     carrier: { down: null, left: null, right: null, up: null },
     loaded: 0,
     missing: 0,

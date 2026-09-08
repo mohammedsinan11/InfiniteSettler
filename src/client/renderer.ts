@@ -68,6 +68,7 @@ const SCATTER_MIN_ZOOM = 13;
 const SPRITE_OVERHANG = 1.12;
 const TREE_SEED = 0x4f2a19c3 | 0;
 const SCATTER_SEED = 0x2c8f5b71 | 0;
+const CLIFF_SEED = 0x7b3d19a5 | 0;
 const RESOURCE_SEED = 0x315ca77d | 0;
 /**
  * Reliefschattierung nach ABSOLUTER Hoehe, nicht nach Steigung.
@@ -118,6 +119,7 @@ interface Ghost {
 }
 
 type SceneObject =
+  | { kind: 'cliff'; x: number; y: number; image: HTMLImageElement }
   | { kind: 'scatter'; x: number; y: number; image: HTMLImageElement }
   | { kind: 'tree'; x: number; y: number; image: HTMLImageElement }
   | { kind: 'resource'; x: number; y: number; image: HTMLImageElement }
@@ -582,6 +584,11 @@ export class Renderer {
 
     for (const object of objects) {
       switch (object.kind) {
+        case 'cliff':
+          // Etwas ueber die Kachel hinaus nach unten, damit die Felswand in
+          // das Wasser darunter hineinragt statt an der Kante zu enden.
+          this.drawBottomCentered(object.image, object.x + 0.5, object.y + 1.45, cam.zoom * 1.5);
+          break;
         case 'scatter':
           this.drawBottomCentered(object.image, object.x + 0.5, object.y + 1, cam.zoom * 0.85);
           break;
@@ -618,6 +625,7 @@ export class Renderer {
   ): void {
     const state = this.world.state;
     const trees = this.assets.trees;
+    const cliffs = this.assets.shore.cliff;
     const scatter = this.cam.zoom >= SCATTER_MIN_ZOOM;
     /**
      * Baumdichte nach Zoom.
@@ -658,6 +666,19 @@ export class Renderer {
             if (hasOverrides) {
               const ov = state.terrainOverride.get(tileKey(x, y));
               if (ov !== undefined) tile = ov;
+            }
+
+            // Uferkante: Land, dessen Suedseite Wasser ist. In der
+            // 3/4-Ansicht schaut man genau auf diese Kante - nach Norden,
+            // Osten oder Westen waere sie vom Gelaende verdeckt.
+            if (cliffs.length > 0 && tile !== Tile.Water && tile !== Tile.Sand) {
+              const below = ly + 1 <= CHUNK_SIZE - 1
+                ? (chunk.tiles[((ly + 1) << CHUNK_BITS) | lx] as Tile)
+                : undefined;
+              if (below === Tile.Water) {
+                const h = hash2i(seed ^ CLIFF_SEED, x, y) >>> 0;
+                objects.push({ kind: 'cliff', x, y, image: cliffs[h % cliffs.length] });
+              }
             }
 
             let image: HTMLImageElement | undefined;
@@ -885,6 +906,8 @@ const clamp255 = (v: number): number => (v < 0 ? 0 : v > 255 ? 255 : v);
 
 const sceneOrder = (kind: SceneObject['kind']): number => {
   switch (kind) {
+    // Uferkanten zuerst: sie liegen im Gelaende, alles andere steht darauf.
+    case 'cliff': return -1;
     case 'scatter': return 0;
     case 'tree': return 0;
     case 'resource': return 1;
