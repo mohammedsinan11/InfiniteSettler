@@ -10,12 +10,13 @@
  */
 
 import { ChunkStore, terrainAt } from './chunks';
-import { CHUNK_BITS, tileKey } from './coords';
+import { CHUNK_BITS, NEIGHBORS, tileKey } from './coords';
 import { Rng } from './rng';
 import { Tile, isBuildable } from './terrain';
 import {
   BUILDING_SPECS,
   GOOD_COUNT,
+  Placement,
   type Building,
   type BuildingType,
   type Carrier,
@@ -111,6 +112,31 @@ export function isWalkable(world: World, x: number, y: number): boolean {
 export function canPlaceOn(world: World, x: number, y: number): boolean {
   if (world.state.buildingAt.has(tileKey(x, y))) return false;
   return isBuildable(getTile(world, x, y));
+}
+
+/** Grenzt mindestens eine der vier Nachbarkacheln ans Wasser? */
+export function touchesWater(world: World, x: number, y: number): boolean {
+  for (const [dx, dy] of NEIGHBORS) {
+    if (getTile(world, x + dx, y + dy) === Tile.Water) return true;
+  }
+  return false;
+}
+
+/**
+ * Platzierungspruefung inklusive der bauartspezifischen Bedingung.
+ * Einzige Stelle, die entscheidet, ob ein Gebaeude irgendwo stehen darf -
+ * Command-Validierung und Bauvorschau im Client fragen beide hier.
+ */
+export function canPlaceBuilding(
+  world: World,
+  type: BuildingType,
+  x: number,
+  y: number,
+): boolean {
+  if (!canPlaceOn(world, x, y)) return false;
+  const spec = BUILDING_SPECS[type];
+  if (spec.placement === Placement.Coast && !touchesWater(world, x, y)) return false;
+  return true;
 }
 
 export function makeBuilding(

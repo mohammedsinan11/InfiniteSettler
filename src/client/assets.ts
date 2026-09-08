@@ -84,6 +84,7 @@ export async function loadGameAssets(): Promise<GameAssets> {
     [BuildingType.Woodcutter]: namedBuildings.woodcutter ?? [],
     [BuildingType.Sawmill]: namedBuildings.sawmill ?? [],
     [BuildingType.Storehouse]: namedBuildings.storehouse ?? [],
+    [BuildingType.Harbor]: namedBuildings.harbor ?? [],
   };
   const resources = Object.fromEntries(resourceEntries) as GameAssets['resources'];
   const carrier = Object.fromEntries(carrierEntries) as GameAssets['carrier'];
@@ -124,6 +125,7 @@ export function emptyGameAssets(): GameAssets {
       [BuildingType.Woodcutter]: [],
       [BuildingType.Sawmill]: [],
       [BuildingType.Storehouse]: [],
+      [BuildingType.Harbor]: [],
     },
     trees: [],
     resources: { stone: [], mountain: [] },

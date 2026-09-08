@@ -11,7 +11,7 @@ import { tileKey } from './coords';
 import { FP_ONE } from './fixed';
 import {
   buildingIdAt,
-  canPlaceOn,
+  canPlaceBuilding,
   makeBuilding,
   type World,
 } from './state';
@@ -49,7 +49,7 @@ function doBuild(
   x: number,
   y: number,
 ): boolean {
-  if (!canPlaceOn(world, x, y)) return false;
+  if (!canPlaceBuilding(world, bt, x, y)) return false;
 
   const s = world.state;
   const id = s.nextId++;

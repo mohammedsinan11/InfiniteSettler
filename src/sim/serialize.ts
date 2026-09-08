@@ -14,7 +14,7 @@ import { fnv1a, hex8 } from './hash';
 import { Rng } from './rng';
 import type { World, WorldState } from './state';
 import type { Tile } from './terrain';
-import type { Building, Carrier } from './types';
+import { GOOD_COUNT, type Building, type Carrier } from './types';
 
 /**
  * Version 2: Die Terraingenerierung wurde ueberarbeitet (Domain Warping,
@@ -94,16 +94,30 @@ export function deserialize(snap: Snapshot): World {
   return { state, chunks: new ChunkStore(snap.seed | 0), rng, dirty: new Set() };
 }
 
+/**
+ * Warenarrays auf die aktuelle Warenzahl bringen.
+ *
+ * Kommt eine Ware dazu (zuletzt Fisch mit dem Hafen), haben aeltere
+ * Spielstaende zu kurze Arrays. Ohne Auffuellen liefe der Zugriff auf den
+ * neuen Index auf undefined und die Bestaende wuerden zu NaN - ein Fehler,
+ * der erst Minuten spaeter als "Traeger holen nichts mehr" auffiele.
+ */
+const goods = (values: number[] | undefined): number[] => {
+  const out = new Array<number>(GOOD_COUNT).fill(0);
+  if (values) for (let i = 0; i < Math.min(values.length, GOOD_COUNT); i++) out[i] = values[i];
+  return out;
+};
+
 const cloneBuilding = (b: Building): Building => ({
   id: b.id,
   type: b.type,
   x: b.x,
   y: b.y,
   progress: b.progress,
-  input: b.input.slice(),
-  output: b.output.slice(),
-  reserved: b.reserved.slice(),
-  incoming: b.incoming.slice(),
+  input: goods(b.input),
+  output: goods(b.output),
+  reserved: goods(b.reserved),
+  incoming: goods(b.incoming),
 });
 
 const cloneCarrier = (c: Carrier): Carrier => ({

@@ -45,8 +45,8 @@ export function stepProduction(world: World): void {
       if (spec.consumes >= 0) {
         if (b.input[spec.consumes] < 1) continue;
         b.input[spec.consumes]--;
-      } else if (spec.harvestRadius > 0 && findTree(world, b) === null) {
-        continue; // kein Wald mehr in Reichweite
+      } else if (spec.harvestTile >= 0 && findHarvest(world, b) === null) {
+        continue; // keine Rohstoffkachel mehr in Reichweite
       }
       b.progress = 0;
       continue;
@@ -55,13 +55,15 @@ export function stepProduction(world: World): void {
     b.progress++;
     if (b.progress < spec.workTicks) continue;
 
-    if (spec.harvestRadius > 0) {
-      const tree = findTree(world, b);
-      if (tree === null) {
-        b.progress = spec.workTicks; // blockiert, bis wieder Wald da ist
+    if (spec.harvestTile >= 0) {
+      const source = findHarvest(world, b);
+      if (source === null) {
+        b.progress = spec.workTicks; // blockiert, bis wieder Rohstoff da ist
         continue;
       }
-      setTile(world, tree[0], tree[1], Tile.Grass);
+      // Nur erschoepfliche Quellen werden aufgebraucht: der Wald des
+      // Holzfaellers wird zu Gras, das Wasser des Hafens bleibt Wasser.
+      if (spec.harvestConsumes) setTile(world, source[0], source[1], Tile.Grass);
     }
     b.output[spec.produces]++;
     b.progress = -1;
@@ -69,11 +71,13 @@ export function stepProduction(world: World): void {
 }
 
 /**
- * Naechster Waldtile im Radius. Feste Scanreihenfolge und Auswahl nach
+ * Naechste Rohstoffkachel im Radius. Feste Scanreihenfolge und Auswahl nach
  * (Abstand, y, x) - damit ist die Wahl bei gleichem Zustand immer dieselbe.
  */
-function findTree(world: World, b: Building): [number, number] | null {
-  const r = BUILDING_SPECS[b.type].harvestRadius;
+function findHarvest(world: World, b: Building): [number, number] | null {
+  const spec = BUILDING_SPECS[b.type];
+  const want = spec.harvestTile;
+  const r = spec.harvestRadius;
   let best: [number, number] | null = null;
   let bestD = Infinity;
   for (let dy = -r; dy <= r; dy++) {
@@ -82,7 +86,7 @@ function findTree(world: World, b: Building): [number, number] | null {
       if (d > r * r || d >= bestD) continue;
       const x = b.x + dx;
       const y = b.y + dy;
-      if (getTile(world, x, y) !== Tile.Forest) continue;
+      if (getTile(world, x, y) !== want) continue;
       best = [x, y];
       bestD = d;
     }

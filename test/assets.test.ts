@@ -13,7 +13,7 @@ const paths = [
 describe('Grafikmanifest', () => {
   it('enthaelt nur eindeutige, vorhandene PNG-Dateien', () => {
     expect(new Set(paths).size).toBe(paths.length);
-    expect(paths.length).toBe(82);
+    expect(paths.length).toBe(86);
 
     for (const path of paths) {
       const file = new URL(`../src/assets/medieval/${path}`, import.meta.url);
@@ -26,6 +26,7 @@ describe('Grafikmanifest', () => {
 
   it('deckt alle aktuell simulierbaren Gebaeudetypen ab', () => {
     expect(Object.keys(manifest.buildings).sort()).toEqual([
+      'harbor',
       'sawmill',
       'storehouse',
       'woodcutter',

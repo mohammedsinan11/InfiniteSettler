@@ -16,6 +16,7 @@ export const Mode = {
   Woodcutter: 'woodcutter',
   Sawmill: 'sawmill',
   Storehouse: 'storehouse',
+  Harbor: 'harbor',
   Demolish: 'demolish',
 } as const;
 export type Mode = (typeof Mode)[keyof typeof Mode];
@@ -26,13 +27,15 @@ export const MODE_LABELS: Array<[Mode, string, string]> = [
   [Mode.Woodcutter, '3', 'Holzfaeller'],
   [Mode.Sawmill, '4', 'Saegewerk'],
   [Mode.Storehouse, '5', 'Lager'],
-  [Mode.Demolish, '6', 'Abreissen'],
+  [Mode.Harbor, '6', 'Hafen'],
+  [Mode.Demolish, '7', 'Abreissen'],
 ];
 
 const BUILD_TYPE: Partial<Record<Mode, BuildingType>> = {
   [Mode.Woodcutter]: BuildingType.Woodcutter,
   [Mode.Sawmill]: BuildingType.Sawmill,
   [Mode.Storehouse]: BuildingType.Storehouse,
+  [Mode.Harbor]: BuildingType.Harbor,
 };
 
 export class Input {
