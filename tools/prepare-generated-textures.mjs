@@ -163,6 +163,29 @@ function seamlessTerrain(image) {
   return { width: size, height: size, data: out };
 }
 
+/**
+ * Uebernimmt ein im Prompt bereits als 32x32-Pixelraster erzeugtes Motiv.
+ * Es wird weder gemittelt noch weichgezeichnet, gespiegelt oder an den
+ * Kanten veraendert. Pro logischem Pixel wird genau ein Quellpixel gelesen.
+ */
+function sampleLogicalTile(image) {
+  const size = 32;
+  const out = new Uint8Array(size * size * 4);
+  for (let y = 0; y < size; y++) {
+    const sy = Math.min(image.height - 1, Math.floor((y + 0.5) * image.height / size));
+    for (let x = 0; x < size; x++) {
+      const sx = Math.min(image.width - 1, Math.floor((x + 0.5) * image.width / size));
+      const source = pixelOffset(image, sx, sy);
+      const target = (y * size + x) * 4;
+      out[target] = image.data[source];
+      out[target + 1] = image.data[source + 1];
+      out[target + 2] = image.data[source + 2];
+      out[target + 3] = 255;
+    }
+  }
+  return { width: size, height: size, data: out };
+}
+
 async function listPngs(directory) {
   const result = [];
   for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
@@ -181,8 +204,8 @@ for (const file of files.sort()) {
   let image = decodePng(await fs.readFile(file));
   let prepared;
 
-  if (category === 'terrain') {
-    prepared = seamlessTerrain(image);
+  if (category === 'terrain' || category === 'roads') {
+    prepared = sampleLogicalTile(image);
   } else {
     const hasTransparency = image.data.some((value, index) => index % 4 === 3 && value < 250);
     if (!hasTransparency) image = removeEdgeCheckerboard(image);

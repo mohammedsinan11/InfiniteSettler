@@ -446,6 +446,20 @@ export class Renderer {
    * das Grafikpaket Kanten mitbringen -, nimmt der Grenze aber den harten
    * Farbsprung und laesst Waldraender bewachsen wirken.
    */
+  /**
+   * Uebergangsboden an Terraingrenzen.
+   *
+   * Das Grafikpaket bringt keine echten Uebergangskacheln mit - es gibt
+   * kein "halb Gras, halb Sand". Stattdessen bekommt eine Kachel den
+   * Boden ihres Nachbarn, sobald genug Nachbarn anders sind. Das
+   * verschiebt die Grenze um eine Kachel und macht daraus einen Saum
+   * statt einer Schnittkante.
+   *
+   * Die Richtung ist dabei nicht beliebig: gemischt wird immer zum
+   * WEICHEREN Boden hin (Wald -> Wiese -> Sand). Andersherum fraesse sich
+   * der harte Boden nach aussen und Inseln wuerden von ihrem eigenen
+   * Strand zugewachsen.
+   */
   private blendSprite(
     tiles: Uint8Array,
     lx: number,
@@ -453,17 +467,30 @@ export class Renderer {
     ox: number,
     oy: number,
   ): TerrainSprite | null {
-    if (tiles[(ly << CHUNK_BITS) | lx] !== Tile.Grass) return null;
+    const own = tiles[(ly << CHUNK_BITS) | lx] as Tile;
+    if (own === Tile.Water) return null;
+
+    const x = ox + lx;
+    const y = oy + ly;
+    const state = this.world.state;
+
+    // Unter einem Gebaeude liegt gestampfter Boden. Sonst steht ein Haus
+    // mitten auf unberuehrter Wiese, als waere es dort abgestellt worden.
+    if (state.buildingAt.size > 0 && state.buildingAt.has(tileKey(x, y))) {
+      return 'dirt';
+    }
 
     // Gras direkt an einer Strasse wird zu getretenem Boden. Das laesst
     // Wege in der Landschaft liegen, statt sie darauf zu kleben.
-    const roads = this.world.state.roads;
-    if (roads.size > 0) {
+    if (own === Tile.Grass && state.roads.size > 0) {
       for (const [dx, dy] of NEIGHBORS) {
-        if (roads.has(tileKey(ox + lx + dx, oy + ly + dy))) return 'dirt';
+        if (state.roads.has(tileKey(x + dx, y + dy))) return 'dirt';
       }
     }
 
+    let water = 0;
+    let sand = 0;
+    let grass = 0;
     let forest = 0;
     let rocky = 0;
     for (const [dx, dy] of NEIGHBORS) {
@@ -473,13 +500,35 @@ export class Renderer {
       // waere teuer; die fehlende Mischung faellt an einer einzelnen
       // Kachelreihe nicht auf.
       if (nx < 0 || ny < 0 || nx >= CHUNK_SIZE || ny >= CHUNK_SIZE) continue;
-      const t = tiles[(ny << CHUNK_BITS) | nx];
-      if (t === Tile.Forest) forest++;
-      else if (t === Tile.Stone || t === Tile.Mountain) rocky++;
+      switch (tiles[(ny << CHUNK_BITS) | nx] as Tile) {
+        case Tile.Water: water++; break;
+        case Tile.Sand: sand++; break;
+        case Tile.Grass: grass++; break;
+        case Tile.Forest: forest++; break;
+        default: rocky++; break;
+      }
     }
-    if (forest >= 2) return 'forest_ground';
-    if (rocky >= 2) return 'dirt';
-    return null;
+
+    switch (own) {
+      case Tile.Sand:
+        // Strand am Wasser bleibt Strand - aber wo er ins Grasland
+        // uebergeht, greift schon die Wiese herueber.
+        return water === 0 && grass >= 2 ? 'grass' : null;
+      case Tile.Grass:
+        if (water + sand >= 2) return 'sand';
+        if (forest >= 2) return 'forest_ground';
+        if (rocky >= 2) return 'dirt';
+        return null;
+      case Tile.Forest:
+        // Waldboden laeuft am Rand in Wiese aus, am Wasser in Sand.
+        if (water + sand >= 2) return 'sand';
+        return grass >= 3 ? 'grass' : null;
+      case Tile.Stone:
+      case Tile.Mountain:
+        return grass + forest >= 2 ? 'dirt' : null;
+      default:
+        return null;
+    }
   }
 
   /** Haelt den Cache klein: alles weit ausserhalb des Sichtfelds fliegt raus. */

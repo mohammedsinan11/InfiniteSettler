@@ -99,7 +99,12 @@ function doBuild(
   s.buildings.set(id, building);
   // Strassen unter der Flaeche gibt es nicht mehr - canPlaceBuilding
   // laesst dort gar nicht erst bauen.
-  forEachFootprint(bt, x, y, (tx, ty) => s.buildingAt.set(tileKey(tx, ty), id));
+  forEachFootprint(bt, x, y, (tx, ty) => {
+    s.buildingAt.set(tileKey(tx, ty), id);
+    // Unter dem Gebaeude liegt gestampfter Boden - der Renderer muss den
+    // Chunk dafuer neu aufbauen.
+    markRoadDirty(world, tx, ty);
+  });
 
   if (bt === BuildingType.Storehouse) {
     for (let i = 0; i < CARRIERS_PER_STOREHOUSE; i++) {
@@ -213,7 +218,7 @@ function doRoad(world: World, x: number, y: number): boolean {
 }
 
 /**
- * Meldet die Umgebung einer Strassenaenderung als neu zu zeichnen.
+ * Meldet eine Kachel und ihre Nachbarn als neu zu zeichnen.
  *
  * Der Renderer baut Chunks einmal und behaelt sie. Gras neben einer
  * Strasse wird zu getretenem Boden - ohne diese Meldung bliebe der alte
@@ -236,7 +241,12 @@ function doDemolish(world: World, x: number, y: number): boolean {
     s.buildings.delete(id);
     // Ueber die gespeicherte Ankerposition freigeben, nicht ueber die
     // angeklickte Kachel - sonst blieben die uebrigen Felder belegt.
-    if (b) forEachFootprint(b.type, b.x, b.y, (tx, ty) => s.buildingAt.delete(tileKey(tx, ty)));
+    if (b) {
+      forEachFootprint(b.type, b.x, b.y, (tx, ty) => {
+        s.buildingAt.delete(tileKey(tx, ty));
+        markRoadDirty(world, tx, ty);
+      });
+    }
     else s.buildingAt.delete(key);
     // Laufende Auftraege loesen sich selbst auf: stepCarriers prueft, ob
     // Quelle und Ziel noch existieren.
