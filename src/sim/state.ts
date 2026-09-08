@@ -132,14 +132,45 @@ export function makeBuilding(
   };
 }
 
-/** Summiert, was in allen Lagern liegt - nur fuer die Anzeige. */
-export function totalStock(world: World): number[] {
-  const total = new Array<number>(GOOD_COUNT).fill(0);
+/**
+ * Warenbestand, aufgeschluesselt nach Aufenthaltsort - nur fuer die Anzeige.
+ *
+ * Die Trennung ist nicht kosmetisch: "Holz das ich besitze" ist mehrdeutig.
+ * Was im Lager liegt, ist verfuegbar. Was im Saegewerk-Puffer steckt oder
+ * gerade getragen wird, gehoert dir zwar auch, ist aber gebunden. Wer nur
+ * die Lagerzahl sieht, haelt eine volle Kette faelschlich fuer leer.
+ */
+export interface StockSummary {
+  /** In Lagern - frei verfuegbar. */
+  stored: number[];
+  /** In Produktionsgebaeuden (Ein- und Ausgangspuffer). */
+  buffered: number[];
+  /** Von Traegern unterwegs. */
+  inTransit: number[];
+  /** Summe der drei. */
+  total: number[];
+}
+
+export function stockSummary(world: World): StockSummary {
+  const stored = new Array<number>(GOOD_COUNT).fill(0);
+  const buffered = new Array<number>(GOOD_COUNT).fill(0);
+  const inTransit = new Array<number>(GOOD_COUNT).fill(0);
+
   for (const b of world.state.buildings.values()) {
-    if (!BUILDING_SPECS[b.type].isSink) continue;
-    for (let g = 0; g < GOOD_COUNT; g++) total[g] += b.input[g];
+    const into = BUILDING_SPECS[b.type].isSink ? stored : buffered;
+    for (let g = 0; g < GOOD_COUNT; g++) into[g] += b.input[g] + b.output[g];
   }
-  return total;
+  for (const c of world.state.carriers.values()) {
+    if (c.carrying >= 0) inTransit[c.carrying]++;
+  }
+
+  const total = stored.map((n, g) => n + buffered[g] + inTransit[g]);
+  return { stored, buffered, inTransit, total };
+}
+
+/** Summiert, was in allen Lagern liegt. */
+export function totalStock(world: World): number[] {
+  return stockSummary(world).stored;
 }
 
 /** Chunk-Koordinaten aller vom Delta betroffenen Chunks - fuer Cache-Invalidierung. */

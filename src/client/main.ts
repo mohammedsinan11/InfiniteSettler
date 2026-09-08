@@ -13,8 +13,9 @@
 
 import { parseKey } from '../sim/coords';
 import { hashWorldHex, serialize, deserialize } from '../sim/serialize';
-import { createWorld, getTile, totalStock, type World } from '../sim/state';
+import { createWorld, getTile, stockSummary, type World } from '../sim/state';
 import { TILE_NAMES, Tile } from '../sim/terrain';
+import { BuildingType } from '../sim/types';
 import { TICK_MS, step } from '../sim/tick';
 import { Camera } from './camera';
 import { Hud } from './hud';
@@ -69,8 +70,7 @@ function centerOnLand(): void {
     for (let i = -r; i <= r; i += 2) {
       for (const [x, y] of [[i, -r], [i, r], [-r, i], [r, i]] as const) {
         if (!isLand(x, y)) continue;
-        cam.x = x;
-        cam.y = y;
+        cam.jumpTo(x, y);
         return;
       }
     }
@@ -89,12 +89,35 @@ async function resetSave(): Promise<void> {
   await newWorld(world.state.seed);
 }
 
+/**
+ * Kamera auf die eigene Siedlung setzen - das erste Lager, sonst das erste
+ * Gebaeude ueberhaupt. Die Kameraposition steht bewusst nicht im Spielstand
+ * (sie ist Client-Zustand, kein Weltzustand), deshalb muss sie beim Laden
+ * neu bestimmt werden. Ohne das startet man auf (0,0) und schaut auf Ozean,
+ * waehrend die Siedlung ausserhalb des Bildes liegt.
+ */
+function centerOnSettlement(): boolean {
+  let home: { x: number; y: number } | null = null;
+  let homeId = Infinity;
+  for (const b of world.state.buildings.values()) {
+    const preferred = b.type === BuildingType.Storehouse;
+    if (home !== null && !preferred) continue;
+    if (preferred && b.id > homeId) continue;
+    home = { x: b.x, y: b.y };
+    if (preferred) homeId = b.id;
+  }
+  if (home === null) return false;
+  cam.jumpTo(home.x, home.y);
+  return true;
+}
+
 async function boot(): Promise<void> {
   try {
     const snap = await loadSnapshot();
     if (snap) {
       attachWorld(deserialize(snap));
       saveState = 'geladen (Tick ' + snap.tick + ')';
+      if (!centerOnSettlement()) centerOnLand();
     } else {
       centerOnLand();
     }
@@ -139,7 +162,7 @@ function frame(now: number): void {
   fps = fps === 0 ? 1000 / Math.max(dt, 1) : fps * 0.9 + (1000 / Math.max(dt, 1)) * 0.1;
 
   resize();
-  input.updateKeyboardPan(dt / 1000);
+  cam.update(dt / 1000, input.panAxis());
 
   acc += dt;
   let ticked = false;
@@ -199,7 +222,7 @@ function updateHud(): void {
     chunksPending: renderer.pendingChunks,
     buildings: world.state.buildings.size,
     carriers: world.state.carriers.size,
-    stock: totalStock(world),
+    stock: stockSummary(world),
     seed: world.state.seed,
     saved: saveState,
   });

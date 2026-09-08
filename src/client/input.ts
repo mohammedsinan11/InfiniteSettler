@@ -8,7 +8,7 @@
 
 import type { Command } from '../sim/commands';
 import { BuildingType } from '../sim/types';
-import type { Camera } from './camera';
+import type { Camera, PanAxis } from './camera';
 
 export const Mode = {
   Pan: 'pan',
@@ -35,8 +35,6 @@ const BUILD_TYPE: Partial<Record<Mode, BuildingType>> = {
   [Mode.Storehouse]: BuildingType.Storehouse,
 };
 
-const PAN_KEY_SPEED = 18; // Tiles pro Sekunde
-
 export class Input {
   mode: Mode = Mode.Pan;
   onModeChange: ((m: Mode) => void) | null = null;
@@ -49,6 +47,10 @@ export class Input {
   private lastY = 0;
   private hoverX: number | null = null;
   private hoverY: number | null = null;
+  /** Letzte Zeigerbewegung, fuer den Schwung beim Loslassen. */
+  private flingX = 0;
+  private flingY = 0;
+  private lastMoveAt = 0;
   /** Beim Strassenmalen nicht bei jedem Pixel denselben Tile schicken. */
   private lastPainted = '';
 
@@ -83,19 +85,21 @@ export class Input {
       : { x: this.hoverX, y: this.hoverY };
   }
 
-  /** Tastatur-Panning, einmal pro Frame mit der echten Framezeit aufgerufen. */
-  updateKeyboardPan(dtSeconds: number): void {
-    let dx = 0;
-    let dy = 0;
-    if (this.keys.has('w') || this.keys.has('arrowup')) dy -= 1;
-    if (this.keys.has('s') || this.keys.has('arrowdown')) dy += 1;
-    if (this.keys.has('a') || this.keys.has('arrowleft')) dx -= 1;
-    if (this.keys.has('d') || this.keys.has('arrowright')) dx += 1;
-    if (dx === 0 && dy === 0) return;
-    // Bei weit herausgezoomter Ansicht proportional schneller scrollen.
-    const speed = (PAN_KEY_SPEED * dtSeconds * 12) / this.cam.zoom;
-    this.cam.x += dx * speed;
-    this.cam.y += dy * speed;
+  /**
+   * Gewuenschte Scrollrichtung aus der Tastatur. Die Kamera macht daraus
+   * eine Geschwindigkeit mit Beschleunigung und Nachlauf - hier wird
+   * bewusst nichts direkt bewegt.
+   */
+  panAxis(): PanAxis {
+    let x = 0;
+    let y = 0;
+    if (this.keys.has('w') || this.keys.has('arrowup')) y -= 1;
+    if (this.keys.has('s') || this.keys.has('arrowdown')) y += 1;
+    if (this.keys.has('a') || this.keys.has('arrowleft')) x -= 1;
+    if (this.keys.has('d') || this.keys.has('arrowright')) x += 1;
+    // Beim Ziehen soll die Tastatur nicht dazwischenfunken.
+    if (this.panning) return { x: 0, y: 0, boost: false };
+    return { x, y, boost: this.keys.has('shift') };
   }
 
   setMode(m: Mode): void {
@@ -118,6 +122,10 @@ export class Input {
     this.lastPainted = '';
     // Rechte Maustaste schiebt immer, linke nur im Ansehen-Modus.
     this.panning = e.button !== 0 || this.mode === Mode.Pan;
+    this.flingX = 0;
+    this.flingY = 0;
+    this.lastMoveAt = e.timeStamp;
+    this.cam.stopMotion();
     if (!this.panning) this.paintAt(e.clientX, e.clientY);
     if (this.panning) this.canvas.classList.add('dragging');
   };
@@ -133,8 +141,12 @@ export class Input {
     const dy = e.clientY - this.lastY;
 
     if (this.panning) {
-      this.cam.x -= dx / this.cam.zoom;
-      this.cam.y -= dy / this.cam.zoom;
+      this.cam.dragBy(dx, dy);
+      // Gleitender Mittelwert der Zeigergeschwindigkeit in Pixel/Sekunde.
+      const dtMs = Math.max(1, e.timeStamp - this.lastMoveAt);
+      this.flingX = this.flingX * 0.6 + ((dx / dtMs) * 1000) * 0.4;
+      this.flingY = this.flingY * 0.6 + ((dy / dtMs) * 1000) * 0.4;
+      this.lastMoveAt = e.timeStamp;
     } else if (this.mode === Mode.Road || this.mode === Mode.Demolish) {
       // Strassen und Abriss lassen sich ziehen, Gebaeude nicht.
       this.paintAt(e.clientX, e.clientY);
@@ -144,17 +156,25 @@ export class Input {
     this.lastY = e.clientY;
   };
 
-  private onPointerUp = (): void => {
+  private onPointerUp = (e: PointerEvent): void => {
+    // Nur nachrutschen lassen, wenn der Zeiger zuletzt wirklich in Bewegung war.
+    if (this.panning && e.timeStamp - this.lastMoveAt < 80) {
+      this.cam.fling(this.flingX, this.flingY);
+    }
     this.pointerDown = false;
     this.panning = false;
+    this.flingX = 0;
+    this.flingY = 0;
     this.canvas.classList.remove('dragging');
   };
 
   private onWheel = (e: WheelEvent): void => {
     e.preventDefault();
     const rect = this.canvas.getBoundingClientRect();
-    const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
-    this.cam.zoomAt(e.clientX - rect.left, e.clientY - rect.top, factor);
+    // deltaMode 1 = Zeilen (Firefox), sonst Pixel. Auf Rasten normieren.
+    const raw = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+    const notches = Math.max(-3, Math.min(3, -raw / 100));
+    this.cam.zoomBy(e.clientX - rect.left, e.clientY - rect.top, notches);
   };
 
   private paintAt(clientX: number, clientY: number): void {

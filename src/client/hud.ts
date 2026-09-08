@@ -1,12 +1,20 @@
 /**
- * Overlay: Werkzeugleiste und Statuszeile.
+ * Overlay: Werkzeugleiste, Warenanzeige und Detailfeld.
  *
- * Der Zustands-Hash ist hier kein Debug-Beiwerk, sondern die Vorbereitung
- * auf M5: zwei Clients mit gleichem Seed und gleicher Befehlsfolge muessen
- * denselben Hash zeigen. Weicht er ab, sind sie auseinandergelaufen.
+ * Die Warenanzeige ist bewusst ein eigenes Element und nicht Teil des
+ * Detailfelds. Vorher steckte sie als eine Zeile unter lauter Debugwerten -
+ * und verschwand unterhalb von 640 px Breite komplett mit, weil das ganze
+ * Feld ausgeblendet wurde. Die wichtigste Zahl des Spiels war damit auf
+ * schmalen Fenstern unsichtbar.
+ *
+ * Der Zustands-Hash im Detailfeld ist kein Debug-Beiwerk, sondern die
+ * Vorbereitung auf M5: zwei Clients mit gleichem Seed und gleicher
+ * Befehlsfolge muessen denselben Hash zeigen.
  */
 
+import type { StockSummary } from '../sim/state';
 import { GOOD_NAMES, type Good } from '../sim/types';
+import { GOOD_COLOR } from './colors';
 import { MODE_LABELS, type Mode } from './input';
 
 export interface HudData {
@@ -22,14 +30,22 @@ export interface HudData {
   chunksPending: number;
   buildings: number;
   carriers: number;
-  stock: number[];
+  stock: StockSummary;
   seed: number;
   saved: string;
 }
 
+/** Unterhalb dieser Breite startet das Detailfeld eingeklappt. */
+const NARROW = 720;
+
 export class Hud {
   private status: HTMLDivElement;
+  private res: HTMLDivElement;
+  private detailBtn: HTMLButtonElement;
   private buttons = new Map<Mode, HTMLButtonElement>();
+  private showDetails = window.innerWidth >= NARROW;
+  /** Zuletzt gerenderte Warenzeile - spart DOM-Arbeit pro Frame. */
+  private lastResKey = '';
 
   constructor(
     onMode: (m: Mode) => void,
@@ -53,23 +69,32 @@ export class Hud {
     spacer.className = 'is-spacer';
     bar.appendChild(spacer);
 
-    const newBtn = document.createElement('button');
-    newBtn.className = 'is-btn is-alt';
-    newBtn.textContent = 'Neue Welt';
-    newBtn.addEventListener('click', onNewWorld);
-    bar.appendChild(newBtn);
+    this.detailBtn = mkButton('Details', () => this.toggleDetails());
+    bar.appendChild(this.detailBtn);
+    bar.appendChild(mkButton('Neue Welt', onNewWorld));
+    bar.appendChild(mkButton('Spielstand loeschen', onReset));
 
-    const resetBtn = document.createElement('button');
-    resetBtn.className = 'is-btn is-alt';
-    resetBtn.textContent = 'Spielstand loeschen';
-    resetBtn.addEventListener('click', onReset);
-    bar.appendChild(resetBtn);
+    this.res = document.createElement('div');
+    this.res.className = 'is-res';
 
     this.status = document.createElement('div');
     this.status.className = 'is-status';
 
-    document.body.appendChild(bar);
+    // Beides in einen Container: sobald die Werkzeugleiste umbricht, wuerde
+    // eine separat positionierte Warenanzeige darueberliegen.
+    const top = document.createElement('div');
+    top.className = 'is-top';
+    top.appendChild(bar);
+    top.appendChild(this.res);
+
+    document.body.appendChild(top);
     document.body.appendChild(this.status);
+
+    window.addEventListener('keydown', (e) => {
+      if (e.key.toLowerCase() === 'i') this.toggleDetails();
+    });
+
+    this.applyDetails();
   }
 
   setMode(m: Mode): void {
@@ -78,30 +103,74 @@ export class Hud {
     }
   }
 
-  update(d: HudData): void {
-    const stock = d.stock
-      .map((n, g) => `${GOOD_NAMES[g as Good]} ${n}`)
-      .join('  ');
-    const hover = d.hover
-      ? `${d.hover.x}, ${d.hover.y} (${d.hover.tile})`
-      : '-';
+  private toggleDetails(): void {
+    this.showDetails = !this.showDetails;
+    this.applyDetails();
+  }
 
+  private applyDetails(): void {
+    this.status.hidden = !this.showDetails;
+    this.detailBtn.classList.toggle('is-active', this.showDetails);
+  }
+
+  update(d: HudData): void {
+    this.updateResources(d.stock);
+    if (this.showDetails) this.updateStatus(d);
+  }
+
+  private updateResources(s: StockSummary): void {
+    // Nur neu bauen, wenn sich wirklich eine Zahl geaendert hat.
+    const key = s.stored.join(',') + '|' + s.total.join(',');
+    if (key === this.lastResKey) return;
+    this.lastResKey = key;
+
+    const cards: string[] = [];
+    for (let g = 0; g < s.stored.length; g++) {
+      const good = g as Good;
+      const bound = s.total[g] - s.stored[g];
+      const title =
+        `${s.stored[g]} im Lager, ${s.buffered[g]} in Gebaeuden, ` +
+        `${s.inTransit[g]} unterwegs`;
+      cards.push(
+        `<div class="is-card" title="${title}">` +
+          `<i style="background:${GOOD_COLOR[good]}"></i>` +
+          `<span class="is-card-name">${GOOD_NAMES[good]}</span>` +
+          `<span class="is-card-n">${s.stored[g]}</span>` +
+          (bound > 0 ? `<span class="is-card-sub">+${bound}</span>` : '') +
+          `</div>`,
+      );
+    }
+    this.res.innerHTML = cards.join('');
+  }
+
+  private updateStatus(d: HudData): void {
+    const hover = d.hover ? `${d.hover.x}, ${d.hover.y} (${d.hover.tile})` : '-';
     this.status.innerHTML = [
       row('Seed', String(d.seed)),
-      row('Tick', `${d.tick}  ·  ${d.fps.toFixed(0)} FPS`),
+      row('Tick', `${d.tick}  &middot;  ${d.fps.toFixed(0)} FPS`),
       row('Hash', `<span class="is-hash">${d.hash}</span>`),
-      row('Kamera', `${d.camX.toFixed(1)}, ${d.camY.toFixed(1)}  ·  ${d.zoom.toFixed(1)} px/Tile`),
+      row(
+        'Kamera',
+        `${d.camX.toFixed(1)}, ${d.camY.toFixed(1)}  &middot;  ${d.zoom.toFixed(1)} px/Tile`,
+      ),
       row('Cursor', hover),
       row(
         'Chunks',
-        `${d.chunksCached} im Cache · ${d.chunksGenerated} erzeugt` +
-          (d.chunksPending > 0 ? ` · ${d.chunksPending} offen` : ''),
+        `${d.chunksCached} im Cache &middot; ${d.chunksGenerated} erzeugt` +
+          (d.chunksPending > 0 ? ` &middot; ${d.chunksPending} offen` : ''),
       ),
-      row('Welt', `${d.buildings} Gebaeude · ${d.carriers} Traeger`),
-      row('Lager', stock),
+      row('Welt', `${d.buildings} Gebaeude &middot; ${d.carriers} Traeger`),
       row('Speicher', d.saved),
     ].join('');
   }
+}
+
+function mkButton(label: string, onClick: () => void): HTMLButtonElement {
+  const b = document.createElement('button');
+  b.className = 'is-btn is-alt';
+  b.textContent = label;
+  b.addEventListener('click', onClick);
+  return b;
 }
 
 const row = (k: string, v: string): string =>
@@ -110,11 +179,15 @@ const row = (k: string, v: string): string =>
 function injectStyles(): void {
   const css = document.createElement('style');
   css.textContent = `
-    .is-bar {
-      position: fixed; top: 0; left: 0; right: 0; display: flex; gap: 6px;
-      padding: 8px; background: rgba(12,18,24,0.82);
+    .is-top {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 2;
+      background: rgba(12,18,24,0.82);
       border-bottom: 1px solid rgba(255,255,255,0.08);
-      backdrop-filter: blur(6px); flex-wrap: wrap; align-items: center;
+      backdrop-filter: blur(6px);
+    }
+    .is-bar {
+      display: flex; gap: 6px; padding: 8px 8px 0;
+      flex-wrap: wrap; align-items: center;
     }
     .is-spacer { flex: 1 1 auto; }
     .is-btn {
@@ -126,16 +199,44 @@ function injectStyles(): void {
     .is-btn b { color: #8fb4d9; margin-right: 3px; }
     .is-btn.is-active { background: #33608c; border-color: #5b93c4; color: #fff; }
     .is-btn.is-alt { color: #9aa7b4; }
+
+    /* Warenanzeige: immer sichtbar, auf jeder Fenstergroesse. */
+    .is-res {
+      display: flex; gap: 6px; padding: 8px; flex-wrap: wrap;
+    }
+    .is-card {
+      display: flex; align-items: center; gap: 6px;
+      padding: 6px 10px; min-width: 108px;
+      background: rgba(12,18,24,0.86);
+      border: 1px solid rgba(255,255,255,0.10); border-radius: 6px;
+      backdrop-filter: blur(6px); cursor: default;
+    }
+    .is-card i {
+      width: 11px; height: 11px; border-radius: 2px; flex: 0 0 auto;
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,0.45);
+    }
+    .is-card-name { color: #93a1af; }
+    .is-card-n {
+      margin-left: auto; font-size: 15px; font-weight: 700; color: #f0f4f8;
+      font-variant-numeric: tabular-nums;
+    }
+    .is-card-sub { color: #6f8497; font-size: 11px; }
+
     .is-status {
       position: fixed; left: 8px; bottom: 8px; min-width: 300px;
       padding: 8px 10px; background: rgba(12,18,24,0.82);
       border: 1px solid rgba(255,255,255,0.08); border-radius: 6px;
-      backdrop-filter: blur(6px); pointer-events: none;
+      backdrop-filter: blur(6px); pointer-events: none; z-index: 2;
     }
     .is-row { display: flex; gap: 12px; justify-content: space-between; }
     .is-row span:first-child { color: #7f8c99; }
     .is-hash { color: #7fd1a5; }
-    @media (max-width: 640px) { .is-status { display: none; } }
+
+    @media (max-width: 720px) {
+      /* Nur das Detailfeld schrumpft - die Warenanzeige bleibt. */
+      .is-status { min-width: 0; right: 8px; }
+      .is-card { min-width: 96px; }
+    }
   `;
   document.head.appendChild(css);
 }

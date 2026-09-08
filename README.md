@@ -21,14 +21,22 @@ npm run dev
 
 | Eingabe | Wirkung |
 | --- | --- |
-| Ziehen (linke Taste im Modus *Ansehen*), rechte Taste immer | Karte schieben |
-| `W A S D` / Pfeiltasten | Karte schieben |
-| Mausrad | Zoomen |
+| Ziehen (linke Taste im Modus *Ansehen*), rechte Taste immer | Karte schieben, laeuft nach dem Loslassen weich aus |
+| `W A S D` / Pfeiltasten | Karte schieben (mit Anlauf und Nachlauf) |
+| `Shift` halten | dreifache Scrollgeschwindigkeit |
+| Mausrad | Zoomen; der Punkt unter dem Cursor bleibt stehen |
 | `1`–`6` | Werkzeug waehlen |
+| `I` | Detailfeld ein-/ausblenden |
 | Ziehen im Modus *Strasse* / *Abreissen* | mehrere Tiles auf einmal |
 
 `#seed=123` in der URL waehlt eine bestimmte Welt. Der Spielstand wird alle
 10 Sekunden automatisch in IndexedDB gesichert.
+
+Die Warenanzeige oben zeigt als grosse Zahl, was **im Lager** liegt. Ein
+kleines `+N` daneben ist gebunden: in Gebaeudepuffern oder gerade von einem
+Traeger unterwegs. Der Tooltip schluesselt es auf. Ohne diese Trennung wirkt
+eine voll ausgelastete Kette faelschlich leer, weil Holz direkt im Saegewerk
+landet und nie im Lager ankommt.
 
 In der Browserkonsole gibt `__settler.hash()` den Zustands-Hash aus — ab M5
 der schnellste Weg, einen Desync zwischen zwei Clients einzukreisen.
