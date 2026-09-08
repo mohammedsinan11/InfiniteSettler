@@ -150,6 +150,114 @@ sehen sich dann nicht gegenseitig die IP-Adresse.
 
 ---
 
+## Weitere Gebaeude integrieren
+
+Der Hafen war der Testfall dafuer, wie teuer ein neues Gebaeude ist. Zwei
+Dinge, die vorher fest im Code standen, sind jetzt Eigenschaften der Bauart:
+**wo** ein Gebaeude stehen darf (`placement`) und **woraus** es seinen
+Rohstoff zieht (`harvestTile` / `harvestConsumes`). Damit kostet ein
+Gebaeude, das in dieses Schema passt, nur noch einen Eintrag.
+
+### Rezept
+
+1. **`src/sim/types.ts`** - Eintrag in `BuildingType`, Eintrag in
+   `BUILDING_SPECS`. Braucht es eine neue Ware, auch `Good`, `GOOD_COUNT`
+   und `GOOD_NAMES`.
+2. **`src/client/colors.ts`** - Farbe fuer Gebaeude und ggf. Ware. Der
+   Compiler erzwingt beides ueber `Record<BuildingType, …>`, man kann es
+   also nicht vergessen.
+3. **`src/client/input.ts`** - `Mode`, `MODE_LABELS`, `BUILD_TYPE`.
+4. **`src/assets/medieval/manifest.json`** + `assets.ts` - Sprites.
+5. **Test** in `test/placement.test.ts`.
+
+Nur wenn eine **neue Lagebedingung** dazukommt (z. B. "an einem Berg"),
+braucht `Placement` einen zusaetzlichen Wert und `canPlaceBuilding` einen
+Zweig. Alles andere ist Konfiguration.
+
+### Wenn eine Ware dazukommt
+
+`GOOD_COUNT` waechst, und aeltere Spielstaende haben zu kurze Warenarrays.
+`deserialize` fuellt sie auf - ohne das liefe der Zugriff auf den neuen
+Index auf `undefined` und die Bestaende wuerden zu `NaN`, was erst Minuten
+spaeter als "Traeger holen nichts mehr" auffiele.
+
+### Was das Schema NICHT abdeckt
+
+- **Mehrfeldrige Gebaeude.** Die Sprites werden mit `zoom * 3.15`
+  gezeichnet, logisch belegt jedes Gebaeude aber eine einzige Kachel. Man
+  kann deshalb eine Strasse mitten durch ein sichtbares Haus bauen. Das zu
+  beheben heisst: Grundflaeche in `BuildingSpec`, `buildingAt` ueber
+  mehrere Kacheln, Platzierungspruefung ueber die ganze Flaeche, und die
+  Entscheidung, welche Felder fuer Traeger begehbar sind (Vorschlag: nur
+  das Ankerfeld, sonst laufen sie durchs Haus).
+- **Gebaeude mit zwei Eingangswaren.** `consumes` ist ein einzelner Wert.
+  Fuer eine Baeckerei (Mehl + Wasser) muesste daraus eine Liste werden.
+
+---
+
+## Naechste Wirtschaftskreislaeufe
+
+Drei Moeglichkeiten, nach Aufwand sortiert. Sie schliessen sich nicht aus.
+
+### A. Steinbruch - der billige Beweis
+
+Ein Eintrag in `BUILDING_SPECS`: `harvestTile: Tile.Stone`,
+`harvestConsumes: true`, `produces: Good.Stone`. Keine neue
+Platzierungsregel noetig - dass der Steinbruch am Fels stehen muss, ergibt
+sich von selbst daraus, dass er sonst nichts findet.
+
+Zeigt, ob die Verallgemeinerung wirklich traegt, und liefert den zweiten
+Grundstoff, den Baukosten brauchen.
+
+### B. Baukosten - der eigentlich fehlende Kreis
+
+**Das ist die wichtigste Luecke im Spiel.** Bauen ist derzeit kostenlos,
+also ist die gesamte Produktionskette ohne Zweck: Bretter herzustellen
+erreicht nichts. Erst wenn ein Gebaeude Bretter und Steine kostet, die aus
+einem Lager kommen muessen, wird aus "Zahlen steigen" ein Spiel.
+
+Umsetzung: `BuildingSpec.cost`, und der Bau-Command legt statt des
+fertigen Gebaeudes eine **Baustelle** an, die wie ein Verbraucher Waren
+anfordert. Ist sie beliefert, wird daraus das Gebaeude. Das nutzt das
+vorhandene Transportsystem vollstaendig weiter - eine Baustelle ist
+schlicht ein Gebaeude mit `consumes` und ohne `produces`.
+
+Nebenwirkung, die man mitdenken muss: das erste Lager muss geschenkt sein,
+sonst kann man nicht anfangen.
+
+### C. Hafen v2 - Schiffe
+
+Der jetzige Hafen fischt nur. Der interessante Hafen verbindet zwei
+Strassennetze ueber Wasser.
+
+Der Trick, mit dem das ohne neues Routing auskommt: **jede Etappe bleibt
+ein eigener Auftrag.** Ein Hafen verhaelt sich landseitig wie ein Lager
+(nimmt an) und wie ein Erzeuger (gibt ab). Dazwischen fahren Schiffe
+zwischen zwei Haefen - das ist derselbe Traegercode mit einer anderen
+Begehbarkeitsregel (`Tile.Water` statt Strassen) und A* darauf. Die
+bestehende Auftragsvergabe deckt Etappe 1 und 3 unveraendert ab.
+
+Voraussetzung ist allerdings, dass es ueberhaupt etwas zu verbinden gibt -
+also Inseln oder Siedlungen ueber einen See hinweg. Mit den jetzigen
+grossen Seen ist das plausibel, aber es ist der Punkt, an dem sich der
+Aufwand erst mit einem Gegenueber lohnt (siehe KI).
+
+### Empfehlung
+
+**A, dann B.** Zusammen sind sie ueberschaubar und geben dem Spiel zum
+ersten Mal ein Ziel. C lohnt sich danach, und es ist ohnehin der natuerliche
+Vorlaeufer der KI - ein zweites Volk am anderen Ufer ist genau der Grund,
+warum ein Hafen existieren will.
+
+### Blocker, der vorher weg muss
+
+`assignJobs` in `src/sim/economy.ts` ist dreifach verschachtelt ueber alle
+Gebaeude (Traeger x Gebaeude x Gebaeude x Waren). Bei drei Gebaeuden
+irrelevant, bei mehreren Voelkern mit je 50 Gebaeuden sind das 125 000
+Kombinationen pro Traeger und Tick. Vor C oder der KI muss das raus.
+
+---
+
 ## Nicht enthalten
 
 - Die Perspektive bleibt ein orthogonales Raster mit 3/4-Sprites. Echte
