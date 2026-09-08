@@ -105,8 +105,10 @@ const S_FOREST_JITTER = 0x68e31da4 | 0;
 // An der GEMESSENEN Verteilung ausgerichtet, nicht geraten. FBM mittelt ueber
 // Oktaven und streut deshalb nicht gleichmaessig ueber [-1,1], sondern in
 // einem schmalen Band. Siehe PLAN.md.
-// Zielanteile: 8% Tiefsee, 24% Wasser gesamt, 6% Sand, 12% Hochland,
-// davon ueber das Gratfeld ~4% Stein und ~1% Berg.
+// Zielanteile: 24% Wasser gesamt, 6% Sand. Vom Land etwa 60% Wald,
+// 18% Fels und Gebirge (davon 7% Gipfel). Bewusst waldreich und
+// gebirgig - die erste Fassung mit 44% Wald und 2% Gipfel wirkte zu
+// gleichfoermig.
 /** Ab hier gilt Wasser als voll ausgetieft - Bezugswert fuer waterDepth. */
 const H_DEEP_FLOOR = F(-0.34);
 const H_WATER = F(-0.078);
@@ -115,16 +117,16 @@ const H_SAND = F(-0.049);
 // der Grat, ab H_PEAK zaehlt die Hoehe voll.
 const H_HILL = F(0.05);
 const H_PEAK = F(0.34);
-const FOREST_THRESHOLD = F(0.02);
+const FOREST_THRESHOLD = F(-0.078);
 // Streuung pro Tile an der Waldgrenze. Ohne sie folgt die Waldkante exakt
 // einer Hoehenlinie des Noise-Feldes und die Landschaft bekommt ein
 // Tarnmuster. Mit ihr franst der Rand aus - einzelne Baeume stehen noch im
 // Grasland, einzelne Lichtungen noch im Wald.
-const FOREST_JITTER = F(0.19);
+const FOREST_JITTER = F(0.17);
 // Perzentile des Gratfelds INNERHALB des Hochlands, nicht global.
 // Schwellen auf den kombinierten Score aus Grat und Hoehe.
-const SCORE_STONE = F(0.72);
-const SCORE_MOUNTAIN = F(0.83);
+const SCORE_STONE = F(0.656);
+const SCORE_MOUNTAIN = F(0.751);
 const W_RIDGE = F(0.68);
 const W_ALTITUDE = F(0.32);
 

@@ -15,17 +15,22 @@
 
 /** Geschwindigkeiten in BILDSCHIRMPIXELN pro Sekunde, nicht in Tiles.
  *  So fuehlt sich das Scrollen bei jedem Zoomgrad gleich an. */
-const PAN_MAX_PX = 190;
-const PAN_ACCEL_PX = 900;
+// Naeher an der urspruenglichen, direkten Steuerung: schneller unterwegs,
+// kuerzerer Anlauf, kuerzerer Nachlauf. Die Glaettung bleibt, sie faellt nur
+// nicht mehr so traege aus. 230 px/s entspricht ungefaehr dem alten Wert.
+const PAN_MAX_PX = 230;
+const PAN_ACCEL_PX = 2200;
 const PAN_BOOST = 3.2;
-/** Nachlauf nach dem Loslassen: e^(-dt*DAMP), 7 entspricht gut 0.4 s Ausrollen. */
-const PAN_DAMP = 7;
+/** Nachlauf nach dem Loslassen: e^(-dt*DAMP), 12 entspricht gut 0.25 s. */
+const PAN_DAMP = 12;
 /** Aus dem Ziehen uebernommener Schwung wird gedeckelt. */
-const FLING_MAX_PX = 2600;
+const FLING_MAX_PX = 1800;
 
-const ZOOM_STEP = 1.12;
-/** Wie schnell der Zoom seinen Zielwert einholt. 14 entspricht etwa 0.2 s. */
-const ZOOM_RATE = 14;
+// Wieder groessere Zoomschritte wie vorher, aber weiterhin animiert statt
+// springend - der Anker unter dem Cursor ist der Teil, der klar besser ist.
+const ZOOM_STEP = 1.15;
+/** Wie schnell der Zoom seinen Zielwert einholt. 24 entspricht etwa 0.12 s. */
+const ZOOM_RATE = 24;
 
 export interface PanAxis {
   x: number;

@@ -191,8 +191,15 @@ export class Renderer {
         const wx = ox + lx;
         const ov = overrides.get(tileKey(wx, wy));
         const tile = ov !== undefined ? ov : chunk.tiles[idx];
-        // Leichte Helligkeitsvariation, damit grosse Flaechen nicht flach wirken.
-        const jitter = (hash2i(this.textureSeed, wx, wy) & 15) - 7;
+        // Variation pro Tile. Bewusst je Kanal unterschiedlich: eine reine
+        // Helligkeitsstreuung laesst grosse Flaechen weiter wie eine flache,
+        // hochskalierte Luftaufnahme wirken, eine Farbtonstreuung nicht.
+        const noise = hash2i(this.textureSeed, wx, wy);
+        // Amplitude bewusst klein: staerker gestreut liest es sich als
+        // Rauschen statt als Textur.
+        const jr = ((noise & 15) - 7) * 0.8;
+        const jg = (((noise >>> 4) & 15) - 7) * 0.8;
+        const jb = (((noise >>> 8) & 15) - 7) * 0.8;
         const h = heights[heightIndex(lx, ly)];
 
         let r: number;
@@ -215,9 +222,9 @@ export class Renderer {
         }
 
         const p = idx << 2;
-        data[p] = clamp255(r + jitter);
-        data[p + 1] = clamp255(g2 + jitter);
-        data[p + 2] = clamp255(b + jitter);
+        data[p] = clamp255(r + jr);
+        data[p + 1] = clamp255(g2 + jg);
+        data[p + 2] = clamp255(b + jb);
         data[p + 3] = 255;
       }
     }
