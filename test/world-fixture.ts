@@ -2,7 +2,7 @@
  * Feste Testwelt.
  *
  * Die Abstaende beruecksichtigen, dass jedes Gebaeude 2x2 Kacheln belegt:
- * ein Gebaeude auf (x,y) liegt auf (x..x+2, y..y+2), die Strasse muss also
+ * ein Gebaeude auf (x,y) liegt auf (x..x+1, y..y+1), die Strasse muss also
  * daneben verlaufen und nicht hindurch.
  *
  * Das Terrain wird per Delta flachgelegt, statt sich auf die Noise-Werte an
@@ -38,15 +38,15 @@ export function makeFixture(seed = 12345): World {
 export function fixtureCommands(): Map<number, Command[]> {
   const log = new Map<number, Command[]>();
 
-  // Lager(0,0) belegt 0..2, Saegewerk(8,0) belegt 8..10,
-  // Holzfaeller(16,0) belegt 16..18.
+  // Lager(0,0) belegt 0..1, Saegewerk(8,0) belegt 8..9,
+  // Holzfaeller(16,0) belegt 16..17.
   const setup: Command[] = [
     { t: 'build', bt: BuildingType.Storehouse, x: 0, y: 0 },
     { t: 'build', bt: BuildingType.Sawmill, x: 8, y: 0 },
     { t: 'build', bt: BuildingType.Woodcutter, x: 16, y: 0 },
   ];
-  for (let x = 3; x <= 15; x++) {
-    if (x >= 8 && x <= 10) continue;
+  for (let x = 2; x <= 15; x++) {
+    if (x >= 8 && x <= 9) continue;
     setup.push({ t: 'road', x, y: 0 });
   }
   log.set(0, setup);

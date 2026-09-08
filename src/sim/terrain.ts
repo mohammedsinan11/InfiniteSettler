@@ -50,8 +50,15 @@ const F = (n: number): number => Math.round(n * FP_ONE);
 
 // Warping: grosse Zelle, damit die Verzerrung grossraeumig fliesst statt
 // die Kueste nur auszufransen.
-const WARP_CELL_BITS = 8;
-const WARP_TILES = 54;
+// Deutlich schwaechere Verzerrung als zuvor (54 Tiles bei Zelle 256).
+//
+// So stark verschoben, dreht sich das Hoehenfeld in sich selbst: beim
+// Herauszoomen las sich die Karte als Strudel, weil die Verzerrung ueber
+// mehrere Zellen hinweg dieselbe Drehrichtung behielt. Kleinere Zelle und
+// halber Ausschlag geben Kuesten weiterhin Buchten und Halbinseln, ohne
+// dass sich die Landschaft im Grossen verwirbelt.
+const WARP_CELL_BITS = 6;
+const WARP_TILES = 22;
 
 // Kontinente: 2^10 = 1024 Tiles Zellweite - achtmal groesser als im
 // Vorgaenger (128), dadurch Meere und Landmassen ueber mehrere Bildschirme.
@@ -77,8 +84,15 @@ const CONT_AMP = F(8);
 const CONT_LIMIT = F(0.09);
 
 // Detail: 2^6 = 64 Tiles. Bricht die Kontinente auf und liefert Kuestenlinien.
-const DETAIL_OCTAVES = 4;
-const DETAIL_CELL_BITS = 6;
+// Basiszelle 256 statt 64 Tiles, sechs Oktaven statt vier.
+//
+// Vorher deckte das Kontinentfeld die grossen Formen ab und das
+// Detailfeld nur 64..8 Tiles - dazwischen klaffte eine Luecke, und genau
+// die las sich als Kleckse: es gab grosse Formen und feines Rauschen,
+// aber nichts dazwischen. Natuerliches Gelaende hat Struktur auf allen
+// Groessen; mit 256 und sechs Oktaven schliesst das Detailfeld die Luecke.
+const DETAIL_OCTAVES = 6;
+const DETAIL_CELL_BITS = 8;
 const DETAIL_GAIN = F(0.55);
 
 const W_DETAIL = F(0.55);

@@ -118,8 +118,8 @@ describe('Baukosten', () => {
     applyCommand(world, { t: 'build', bt: BuildingType.Storehouse, x: 0, y: 0 });
     applyCommand(world, { t: 'build', bt: BuildingType.Woodcutter, x: 16, y: 0 });
     applyCommand(world, { t: 'build', bt: BuildingType.Sawmill, x: 8, y: 0 });
-    for (let x = 3; x <= 15; x++) {
-      if (x >= 8 && x <= 10) continue;
+    for (let x = 2; x <= 15; x++) {
+      if (x >= 8 && x <= 9) continue;
       applyCommand(world, { t: 'road', x, y: 0 });
     }
     for (let i = 0; i < 4000; i++) step(world);

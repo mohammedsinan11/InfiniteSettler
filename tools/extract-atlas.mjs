@@ -67,6 +67,13 @@ import { decodePng, encodePng } from './png.mjs';
 
 const PACK = 'texture pack/medieval_texture_pack_v0.1';
 const ATLAS = join(PACK, 'preview/atlas_reference.png');
+/**
+ * Zweite Vorlage. Anderes Blatt, anderer Aufbau - deshalb tragen die
+ * Kategorien ein eigenes `source`. Diese hier ist die bessere: saubere
+ * 32er-Kacheln, dazu Strassenkreuzungen und Wasser-Ufer-Uebergaenge, die
+ * im ersten Blatt fehlten.
+ */
+const ATLAS2 = 'texture pack/image.png';
 
 /**
  * Grobe Boxen aus dem Atlas. Sie muessen die Zellen umschliessen und die
@@ -78,6 +85,48 @@ const ATLAS = join(PACK, 'preview/atlas_reference.png');
  * die Werte muessen also nicht pixelgenau sein - nur eng genug.
  */
 const CATEGORIES = [
+  // --- zweite Vorlage: image.png ---------------------------------------
+  // Die Beschriftung steht UNTER jeder Kachel, nicht daneben. Deshalb
+  // explizite Zeilenbaender, die nur die Kachel umfassen.
+  { name: 'g2_grass', source: ATLAS2, mode: 'grid', box: [8, 43, 378, 231],
+    cols: 4, rows: 2, rowBands: [[40, 119], [160, 239]],
+    rowNames: ['grass', 'grass_b'], out: 0, inset: 3, transparent: false,
+    dir: () => 'g2/terrain', flat: true },
+  { name: 'g2_forest', source: ATLAS2, mode: 'grid', box: [395, 43, 760, 231],
+    cols: 4, rows: 2, rowBands: [[40, 119], [160, 239]],
+    rowNames: ['forest_ground', 'forest_ground_b'], out: 0, inset: 3,
+    transparent: false, dir: () => 'g2/terrain', flat: true },
+  { name: 'g2_dirt', source: ATLAS2, mode: 'grid', box: [778, 43, 1140, 231],
+    cols: 4, rows: 2, rowBands: [[40, 119], [160, 239]],
+    rowNames: ['dirt', 'dirt_b'], out: 0, inset: 3, transparent: false,
+    dir: () => 'g2/terrain', flat: true },
+  { name: 'g2_road', source: ATLAS2, mode: 'grid', box: [1158, 43, 1528, 231],
+    cols: 4, rows: 2, rowBands: [[40, 119], [160, 239]],
+    rowNames: ['road', 'road_b'], out: 0, inset: 3, transparent: false,
+    dir: () => 'g2/terrain', flat: true },
+  { name: 'g2_water', source: ATLAS2, mode: 'grid', box: [8, 322, 378, 512],
+    cols: 4, rows: 2, rowBands: [[320, 399], [440, 519]],
+    rowNames: ['water', 'water_b'], out: 0, inset: 3, transparent: false,
+    dir: () => 'g2/terrain', flat: true },
+  { name: 'g2_trees', source: ATLAS2, mode: 'grid', box: [410, 318, 790, 562],
+    cols: 4, rows: 2, rowBands: [[320, 424], [452, 556]],
+    rowNames: ['oak', 'pine'], out: 0, inset: 2, transparent: true,
+    dir: () => 'g2/trees' },
+  { name: 'g2_plants', source: ATLAS2, mode: 'grid', box: [826, 320, 1160, 575],
+    cols: 4, rows: 3, rowBands: [[322, 388], [410, 476], [498, 564]],
+    rowNames: ['bush', 'plant', 'flower'], out: 0, inset: 2, transparent: true,
+    dir: () => 'g2/plants' },
+  { name: 'g2_rocks', source: ATLAS2, mode: 'grid', box: [1186, 320, 1530, 575],
+    cols: 4, rows: 3, rowBands: [[322, 388], [410, 476], [498, 564]],
+    rowNames: ['rock', 'timber', 'fence'], out: 0, inset: 2, transparent: true,
+    dir: () => 'g2/rocks' },
+  // Raster statt Laeufe: die Gebaeude stehen dicht an dicht und ihre
+  // Baeume beruehren sich, die Laufsuche fand nur einen einzigen Block.
+  { name: 'g2_buildings', source: ATLAS2, mode: 'grid', box: [858, 638, 1522, 925],
+    cols: 4, rows: 2, rowBands: [[640, 768], [800, 908]],
+    rowNames: ['house', 'sawmill'], out: 0, inset: 2, transparent: true,
+    dir: () => 'g2/buildings' },
+
   {
     name: 'terrain',
     mode: 'grid',
@@ -198,6 +247,12 @@ function isBackground(img, x, y) {
   const r = img.data[k], g = img.data[k + 1], b = img.data[k + 2];
   const mx = Math.max(r, g, b);
   const mn = Math.min(r, g, b);
+  // Sehr dunkle Pixel sind immer Hintergrund. Bei fast schwarzen Farben
+  // ist die rechnerische Saettigung bedeutungslos - ein Unterschied von
+  // wenigen Stufen zwischen den Kanaelen ergibt schon 0.5, und der
+  // Panelhintergrund der zweiten Vorlage (19,30,36) fiel deshalb faelschlich
+  // als Inhalt durch.
+  if (mx <= 48) return true;
   const sat = mx === 0 ? 0 : (mx - mn) / mx;
   return mx <= 78 && sat <= 0.45;
 }
@@ -381,8 +436,13 @@ const only = argOf('--only', null);
 /** Nur zum Ausprobieren: ueberschreibt den Einzug aller Kategorien. */
 const insetOverride = args.includes('--inset') ? Number(argOf('--inset', '0')) : null;
 
-const atlas = decodePng(readFileSync(ATLAS));
-console.log(`Atlas: ${atlas.width}x${atlas.height}\nZiel:  ${outRoot}\n`);
+const sources = new Map();
+const atlasFor = (path) => {
+  const key = path ?? ATLAS;
+  if (!sources.has(key)) sources.set(key, decodePng(readFileSync(key)));
+  return sources.get(key);
+};
+console.log(`Ziel: ${outRoot}\n`);
 
 let written = 0;
 const warnings = [];
@@ -446,6 +506,7 @@ function emit(cell, cat, rowName, index) {
 
 for (const cat of CATEGORIES) {
   if (only && only !== cat.name) continue;
+  const atlas = atlasFor(cat.source);
   const box = refine(cat.box, atlas);
   const inset = insetOverride ?? cat.inset ?? 0;
 

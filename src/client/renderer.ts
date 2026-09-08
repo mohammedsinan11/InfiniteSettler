@@ -57,15 +57,12 @@ const SCATTER_MIN_ZOOM = 13;
 /**
  * Wie weit ein Gebaeudesprite ueber seine Grundflaeche hinausragen darf.
  *
- * Knapp ueber 1, seit die Sprites aus dem v0.2-Paket kommen: die sind eng
- * auf das Gebaeude zugeschnitten und bringen kein breites Bodenstueck mehr
- * mit. Ihr Seitenverhaeltnis liegt bei etwa 0.73 statt 1.3 - die HOEHE
- * ergibt sich daraus von selbst und faellt entsprechend gross aus, was in
- * der 3/4-Ansicht richtig ist: das Dach ragt nach oben ueber die
- * Grundflaeche, dort liegt aus Sicht des Betrachters ohnehin "hinter" dem
- * Gebaeude.
+ * Die Sprites bringen Zaun und Baeume rundherum mit, das eigentliche Haus
+ * nimmt nur den mittleren Teil ein. Genau auf die Grundflaeche gezogen
+ * wirkte es winzig neben den Strassenkacheln. Nach oben darf es ohnehin
+ * ueberstehen: dort liegt in der 3/4-Ansicht "hinter" dem Gebaeude.
  */
-const SPRITE_OVERHANG = 1.12;
+const SPRITE_OVERHANG = 1.35;
 const TREE_SEED = 0x4f2a19c3 | 0;
 const SCATTER_SEED = 0x2c8f5b71 | 0;
 const CLIFF_SEED = 0x7b3d19a5 | 0;
