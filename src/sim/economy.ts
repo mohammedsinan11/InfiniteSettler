@@ -17,7 +17,6 @@ import { getTile, isSailable, setTile, type World } from './state';
 import { Tile } from './terrain';
 import {
   BUILDING_SPECS,
-  BuildingType,
   CARRIER_SPEED,
   SHIP_MIN_GAP,
   SHIP_SPEED,
@@ -350,9 +349,10 @@ export function dockTile(world: World, harbor: Building): [number, number] | nul
   return null;
 }
 
+/** Alle Bauten mit Anleger - kleiner wie grosser Hafen. */
 const harborIds = (world: World): number[] =>
   sortedIds(world.state.buildings).filter(
-    (id) => (world.state.buildings.get(id) as Building).type === BuildingType.Harbor,
+    (id) => BUILDING_SPECS[(world.state.buildings.get(id) as Building).type].isPort,
   );
 
 /**

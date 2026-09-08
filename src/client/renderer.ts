@@ -17,7 +17,7 @@ import { hash2i } from '../sim/hash';
 import { FP_ONE } from '../sim/fixed';
 import { buildingIdAt, getTile, hasRoad, type World } from '../sim/state';
 import { Tile, waterDepth } from '../sim/terrain';
-import { BUILDING_SPECS, BuildingType, GOOD_COUNT, type Building, type Carrier, type Ship } from '../sim/types';
+import { BUILDING_SPECS, GOOD_COUNT, type Building, type Carrier, type Ship } from '../sim/types';
 import type { CarrierDirection, GameAssets, TerrainSprite } from './assets';
 import type { Camera } from './camera';
 import {
@@ -68,6 +68,16 @@ const SPRITE_OVERHANG = 1.35;
 const TREE_SEED = 0x4f2a19c3 | 0;
 const SCATTER_SEED = 0x2c8f5b71 | 0;
 const CLIFF_SEED = 0x7b3d19a5 | 0;
+
+/**
+ * Hoehe einer Figur in Kacheln.
+ *
+ * Vorher 1.75 - damit war ein Traeger fast so hoch wie ein Haus (die
+ * Gebaeudesprites belegen zwei Kacheln und sind sichtbar rund 2.2 Kacheln
+ * hoch). Ein Mensch von etwa 1.75 m entspricht bei diesem Massstab
+ * ungefaehr einer Dreiviertelkachel.
+ */
+const CARRIER_HEIGHT = 0.75;
 
 /** Wie weit der Hafen aus seiner Grundflaeche Richtung Wasser rueckt. */
 const HARBOR_DOCK_SHIFT = 0.45;
@@ -881,11 +891,12 @@ export class Renderer {
     y: number,
     footprint: number,
     mirrored = false,
+    scale = 1,
   ): void {
     const z = this.cam.zoom;
     // Etwas breiter als die Grundflaeche: sonst wirkt das Gebaeude
     // eingeschnuert, weil die Sprites einen transparenten Rand haben.
-    const width = footprint * z * SPRITE_OVERHANG;
+    const width = footprint * z * SPRITE_OVERHANG * scale;
     const height = width / (image.naturalWidth / image.naturalHeight);
     const sx = this.cam.worldToScreenX(x + footprint / 2) - width / 2;
     const sy = this.cam.worldToScreenY(y + footprint) - height;
@@ -917,6 +928,7 @@ export class Renderer {
       b.y + oy * HARBOR_DOCK_SHIFT,
       foot,
       ox > 0,
+      BUILDING_SPECS[b.type].spriteScale,
     );
   }
 
@@ -963,11 +975,12 @@ export class Renderer {
     const sx = cam.worldToScreenX(b.x);
     const sy = cam.worldToScreenY(b.y);
 
-    const foot = BUILDING_SPECS[b.type].footprint;
-    if (image && b.type === BuildingType.Harbor) {
+    const spec = BUILDING_SPECS[b.type];
+    const foot = spec.footprint;
+    if (image && spec.isPort) {
       this.drawHarbor(image, b, foot);
     } else if (image) {
-      this.drawOnFootprint(image, b.x, b.y, foot);
+      this.drawOnFootprint(image, b.x, b.y, foot, false, spec.spriteScale);
     } else {
       ctx.fillStyle = BUILDING_COLOR[b.type];
       ctx.fillRect(sx, sy, z * foot, z * foot);
@@ -975,8 +988,6 @@ export class Renderer {
       ctx.lineWidth = 1;
       ctx.strokeRect(sx + 0.5, sy + 0.5, z * foot - 1, z * foot - 1);
     }
-
-    const spec = BUILDING_SPECS[b.type];
 
     if (z < 10) return;
 
@@ -1086,7 +1097,7 @@ export class Renderer {
     const sy = cam.worldToScreenY(y + 0.62);
 
     if (image && z >= 5) {
-      this.drawBottomCentered(image, x + 0.5, y + 0.72, z * 1.75);
+      this.drawBottomCentered(image, x + 0.5, y + 0.9, z * CARRIER_HEIGHT);
     } else {
       ctx.fillStyle = CARRIER_COLOR;
       ctx.beginPath();

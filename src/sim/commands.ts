@@ -25,16 +25,15 @@ import {
   CarrierState,
   GOOD_COUNT,
   Good,
+  type Building,
   type Carrier,
 } from './types';
 
 export type Command =
   | { t: 'build'; bt: BuildingType; x: number; y: number }
   | { t: 'road'; x: number; y: number }
-  | { t: 'demolish'; x: number; y: number };
-
-/** Jedes neue Lager bringt eigene Traeger mit. */
-const CARRIERS_PER_STOREHOUSE = 4;
+  | { t: 'demolish'; x: number; y: number }
+  | { t: 'upgrade'; x: number; y: number };
 
 /**
  * Startausstattung des allerersten Gebaeudes.
@@ -64,6 +63,8 @@ export function applyCommand(world: World, cmd: Command): boolean {
       return doRoad(world, cmd.x, cmd.y);
     case 'demolish':
       return doDemolish(world, cmd.x, cmd.y);
+    case 'upgrade':
+      return doUpgrade(world, cmd.x, cmd.y);
   }
 }
 
@@ -107,51 +108,112 @@ function doBuild(
     markRoadDirty(world, tx, ty);
   });
 
-  if (bt === BuildingType.Harbor) {
-    // Jeder Hafen bringt ein Schiff mit, das an seinem Anleger startet.
-    const dock = dockTile(world, building);
-    if (dock) {
-      const shipId = s.nextId++;
-      s.ships.set(shipId, {
-        id: shipId,
-        x: (dock[0] * FP_ONE) | 0,
-        y: (dock[1] * FP_ONE) | 0,
-        path: [],
-        pathIdx: 0,
-        state: CarrierState.Idle,
-        carrying: -1,
-        jobGood: -1,
-        jobFrom: 0,
-        jobTo: 0,
-        home: id,
-      });
-    }
+  spawnCrew(world, building, 0, 0);
+  return true;
+}
+
+/**
+ * Setzt Traeger und Schiffe eines Gebaeudes ein.
+ *
+ * have* ist der bereits vorhandene Bestand: beim Neubau null, beim Ausbau
+ * die Belegschaft der Vorstufe. So bekommt die Ausbaustufe nur die
+ * Differenz, und die vorhandenen Traeger behalten ihre laufenden
+ * Auftraege.
+ */
+function spawnCrew(
+  world: World,
+  b: Building,
+  haveCarriers: number,
+  haveShips: number,
+): void {
+  const s = world.state;
+  const spec = BUILDING_SPECS[b.type];
+
+  for (let i = haveCarriers; i < spec.carriers; i++) {
+    const cid = s.nextId++;
+    const carrier: Carrier = {
+      id: cid,
+      // An der VORDERKANTE des Lagers, nicht auf der Ankerkachel.
+      //
+      // Auf dem Anker stehen sie mitten im Gebaeude: der Renderer
+      // sortiert nach Fusspunkt, sie liegen dann hinter dem Haus und ihr
+      // Kopf ragt ueber das Dach. An der Vorderkante stehen sie davor.
+      x: (b.x * FP_ONE) | 0,
+      y: ((b.y + spec.footprint - 1) * FP_ONE) | 0,
+      path: [],
+      pathIdx: 0,
+      state: CarrierState.Idle,
+      carrying: -1,
+      jobGood: -1,
+      jobFrom: 0,
+      jobTo: 0,
+    };
+    s.carriers.set(cid, carrier);
   }
 
-  if (bt === BuildingType.Storehouse) {
-    for (let i = 0; i < CARRIERS_PER_STOREHOUSE; i++) {
-      const cid = s.nextId++;
-      const carrier: Carrier = {
-        id: cid,
-        // An der VORDERKANTE des Lagers, nicht auf der Ankerkachel.
-        //
-        // Auf dem Anker stehen sie mitten im Gebaeude: der Renderer
-        // sortiert nach Fusspunkt, sie liegen dann hinter dem Haus und ihr
-        // Kopf ragt ueber das Dach. An der Vorderkante stehen sie davor.
-        x: (x * FP_ONE) | 0,
-        y: ((y + BUILDING_SPECS[bt].footprint - 1) * FP_ONE) | 0,
-        path: [],
-        pathIdx: 0,
-        state: CarrierState.Idle,
-        carrying: -1,
-        jobGood: -1,
-        jobFrom: 0,
-        jobTo: 0,
-      };
-      s.carriers.set(cid, carrier);
-    }
+  if (haveShips >= spec.ships) return;
+  // Jedes Schiff startet an seinem Anleger.
+  const dock = dockTile(world, b);
+  if (!dock) return;
+  for (let i = haveShips; i < spec.ships; i++) {
+    const shipId = s.nextId++;
+    s.ships.set(shipId, {
+      id: shipId,
+      x: (dock[0] * FP_ONE) | 0,
+      y: (dock[1] * FP_ONE) | 0,
+      path: [],
+      pathIdx: 0,
+      state: CarrierState.Idle,
+      carrying: -1,
+      jobGood: -1,
+      jobFrom: 0,
+      jobTo: 0,
+      home: b.id,
+    });
   }
+}
 
+/**
+ * Baut ein Gebaeude an Ort und Stelle zur naechsten Stufe aus.
+ *
+ * Bewusst kein Abriss und Neubau: Bestand, Id und Belegschaft bleiben
+ * erhalten. Ein Abriss wuerde die eingelagerten Waren vernichten und alle
+ * laufenden Auftraege abbrechen - der Ausbau waere dann ein Rueckschritt.
+ */
+function doUpgrade(world: World, x: number, y: number): boolean {
+  const s = world.state;
+  const id = buildingIdAt(world, x, y);
+  if (id === undefined) return false;
+  const b = s.buildings.get(id);
+  if (!b) return false;
+
+  const from = BUILDING_SPECS[b.type];
+  const next = from.upgradesTo;
+  if (next === -1) return false;
+  // Die Grundflaeche darf sich beim Ausbau nicht aendern - sonst muesste
+  // hier erst geprueft werden, ob der zusaetzliche Platz frei ist.
+  if (BUILDING_SPECS[next].footprint !== from.footprint) return false;
+  if (!payCost(s, from.upgradeCost)) return false;
+
+  b.type = next;
+  spawnCrew(world, b, from.carriers, from.ships);
+  // Das Sprite der Ausbaustufe ist groesser - der Renderer muss die
+  // Flaeche darunter neu aufbauen.
+  forEachFootprint(next, b.x, b.y, (tx, ty) => markRoadDirty(world, tx, ty));
+  return true;
+}
+
+/** Laesst sich das Gebaeude auf dieser Kachel gerade ausbauen? */
+export function canUpgrade(world: World, x: number, y: number): boolean {
+  const id = buildingIdAt(world, x, y);
+  if (id === undefined) return false;
+  const b = world.state.buildings.get(id);
+  if (!b) return false;
+  const spec = BUILDING_SPECS[b.type];
+  if (spec.upgradesTo === -1) return false;
+  for (let g = 0; g < GOOD_COUNT; g++) {
+    if (availableStock(world.state, g as Good) < spec.upgradeCost[g]) return false;
+  }
   return true;
 }
 
@@ -222,9 +284,16 @@ function payCost(s: World['state'], cost: readonly number[]): boolean {
   return true;
 }
 
+/**
+ * Gibt es ueberhaupt einen Umschlagplatz?
+ *
+ * Frueher fragte das nur nach dem Lager. Mit dem billigen Umschlagplatz
+ * waere daraus ein Schlupfloch geworden: erst einen fuer vier Holz setzen
+ * und dann das Lager als "Rettung" geschenkt bekommen.
+ */
 const hasStorehouse = (s: World['state']): boolean => {
   for (const b of s.buildings.values()) {
-    if (b.type === BuildingType.Storehouse) return true;
+    if (BUILDING_SPECS[b.type].isSink) return true;
   }
   return false;
 };

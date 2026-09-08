@@ -114,6 +114,10 @@ export async function loadGameAssets(): Promise<GameAssets> {
     [BuildingType.Storehouse]: namedBuildings.storehouse ?? [],
     [BuildingType.Harbor]: namedBuildings.harbor ?? [],
     [BuildingType.Quarry]: namedBuildings.quarry ?? [],
+    // Die Vorstufen haben noch keine eigenen Grafiken und benutzen die
+    // ihrer Ausbaustufe; der Renderer zeichnet sie kleiner (spriteScale).
+    [BuildingType.Depot]: namedBuildings.storehouse ?? [],
+    [BuildingType.SmallHarbor]: namedBuildings.harbor ?? [],
   };
   const resources = Object.fromEntries(resourceEntries) as GameAssets['resources'];
   const goods = Object.fromEntries(goodEntries) as GameAssets['goods'];
@@ -172,6 +176,8 @@ export function emptyGameAssets(): GameAssets {
       [BuildingType.Storehouse]: [],
       [BuildingType.Harbor]: [],
       [BuildingType.Quarry]: [],
+      [BuildingType.Depot]: [],
+      [BuildingType.SmallHarbor]: [],
     },
     trees: [],
     resources: { stone: [], mountain: [] },

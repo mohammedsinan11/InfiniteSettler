@@ -75,13 +75,28 @@ plus einem Variantenhinweis ("andere Dachfarbe", "andere Anordnung").
 5. **Mühle** — Windmühle mit Flügeln, Mehlsäcke davor
 6. **Bäckerei** — Fachwerkhaus mit Steinofen und rauchendem Schornstein
 
+#### Vorstufen — neu, mit Priorität
+
+Diese beiden sind gerade ins Spiel gekommen und benutzen behelfsweise das
+verkleinerte Bild ihrer Ausbaustufe. Sie sollen als **einfachere, ärmere
+Vorstufe** desselben Gebäudes erkennbar sein — gleiche Palette, gleicher
+Blickwinkel, aber sichtbar bescheidener. Wichtig ist der Kontrast zum
+großen Gegenstück, nicht die Detailfülle.
+
+7. **Umschlagplatz** — Vorstufe des Lagers, kostet nur Holz: offener
+   Bretterunterstand mit Pultdach statt eines festen Hauses, ein paar
+   Kisten und Säcke darunter, Handkarre daneben, kein Mauerwerk
+8. **Kleiner Hafen** — Vorstufe des Hafens, kostet nur Holz: schmaler
+   Holzsteg auf Pfählen, ein einzelner Poller, gestapelte Reusen und
+   Netze, kein Bootshaus und kein Kran
+
 ### Schiffe — fehlen komplett
 
 Wichtig: Schiffe brauchen **vier Blickrichtungen** (nach oben, unten,
 links, rechts), nicht vier Gestaltungsvarianten.
 
-7. **Handelsschiff** — bauchige Kogge mit einem Segel, Frachtkisten an Deck
-8. **Kleines Kriegsschiff** — schlanker, Schilde am Rumpf, Segel gerefft
+9. **Handelsschiff** — bauchige Kogge mit einem Segel, Frachtkisten an Deck
+10. **Kleines Kriegsschiff** — schlanker, Schilde am Rumpf, Segel gerefft
 
 ### Bodentexturen (Punkt 6)
 
@@ -104,6 +119,23 @@ Die vorhandenen Bodenkacheln sind nicht nahtlos — deshalb liegen sie im
 Spiel nur halbdurchsichtig über einer prozeduralen Grundfarbe. Mit
 nahtlosen Kacheln fiele dieser Umweg weg und der Boden würde deutlich
 klarer.
+
+**Erledigt mit `art/generated-textures-v2/`.** Gemessen (mittlere
+Farbdifferenz über die Kachelnaht im Verhältnis zu einem normalen
+Nachbarschritt innerhalb der Kachel, 1.0 = unsichtbar):
+
+| | bisher | v2 |
+|---|---|---|
+| Wiese | 1.47 | 0.87 |
+| Sand | 1.84 | 0.86 |
+| Wasser | 4.89 | 0.89 |
+| Erdboden | 1.84 | 0.90 |
+| Waldboden | 1.25 | 0.92 |
+
+Die v2-Kacheln sind damit tatsächlich nahtlos. Offen bleibt nur, dass die
+PNGs mit 1254 x 1254 ausgeliefert werden, obwohl der Inhalt ein logisches
+32er-Raster ist — das ist unschädlich, kostet aber unnötig Platz. Eine
+Ausgabe in nativer Größe wäre für den nächsten Satz besser.
 
 ### Warensymbole
 

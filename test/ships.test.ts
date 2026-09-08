@@ -13,7 +13,7 @@ import { dockTile } from '../src/sim/economy';
 import { createWorld, setTile, type World } from '../src/sim/state';
 import { Tile } from '../src/sim/terrain';
 import { step } from '../src/sim/tick';
-import { BuildingType, CarrierState, Good } from '../src/sim/types';
+import { BUILDING_SPECS, BuildingType, CarrierState, Good } from '../src/sim/types';
 
 /** Zwei Landzungen, dazwischen ein See. */
 function twoShores(): World {
@@ -39,16 +39,19 @@ function withDepot(world: World): void {
 }
 
 describe('Haefen und Schiffe', () => {
-  it('jeder Hafen bringt ein Schiff mit, das am Anleger startet', () => {
+  it('jeder Hafen bringt seine Schiffe mit, sie starten am Anleger', () => {
     const world = twoShores();
     applyCommand(world, { t: 'build', bt: BuildingType.Harbor, x: 4, y: 0 });
-    expect(world.state.ships.size).toBe(1);
+    expect(world.state.ships.size).toBe(BUILDING_SPECS[BuildingType.Harbor].ships);
 
     const harbor = at(world, 4, 0);
     const dock = harbor ? dockTile(world, harbor) : null;
     const ship = [...world.state.ships.values()][0];
     expect(dock, 'Anleger gefunden').not.toBeNull();
-    expect([ship.x / 65536, ship.y / 65536]).toEqual([dock![0], dock![1]]);
+    for (const sh of world.state.ships.values()) {
+      expect([sh.x / 65536, sh.y / 65536]).toEqual([dock![0], dock![1]]);
+    }
+    expect(ship.home).toBe(harbor!.id);
   });
 
   it('reisst den Hafen ab, verschwindet sein Schiff mit', () => {

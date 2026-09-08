@@ -32,6 +32,10 @@ export const BuildingType = {
   Storehouse: 2,
   Harbor: 3,
   Quarry: 4,
+  // Die kleinen Vorstufen kommen ans ENDE der Liste, nicht an ihren
+  // logischen Platz: die Zahl steht so in jedem gespeicherten Spielstand.
+  Depot: 5,
+  SmallHarbor: 6,
 } as const;
 export type BuildingType = (typeof BuildingType)[keyof typeof BuildingType];
 
@@ -105,6 +109,36 @@ export interface BuildingSpec {
   readonly cost: Cost;
   /** Nimmt alles an und gibt nichts wieder ab. */
   readonly isSink: boolean;
+  /** Traeger, die mit dem Bau entstehen. */
+  readonly carriers: number;
+  /** Schiffe, die mit dem Bau entstehen. */
+  readonly ships: number;
+  /**
+   * Legt hier ein Schiff an?
+   *
+   * Schiffe gleichen die Bestaende zwischen allen Anlegern aus. Frueher
+   * fragte der Seeverkehr direkt auf BuildingType.Harbor ab; mit dem
+   * kleinen Hafen gibt es zwei Bauarten mit Anleger, und der Test gehoert
+   * damit an die Eigenschaft statt an die Bauart.
+   */
+  readonly isPort: boolean;
+  /**
+   * Groesse des Sprites im Verhaeltnis zur Grundflaeche.
+   *
+   * Die kleinen Vorstufen benutzen vorerst das Bild ihrer Ausbaustufe.
+   * Kleiner gezeichnet sind sie trotzdem als Vorstufe zu erkennen, ohne
+   * dass dafuer eigene Grafiken noetig waeren.
+   */
+  readonly spriteScale: number;
+  /** Ausbaustufe, oder -1. */
+  readonly upgradesTo: BuildingType | -1;
+  /**
+   * Was der Ausbau kostet.
+   *
+   * Weniger als der Neubau: Grundstueck, Fundament und Belegschaft sind
+   * schon da, bezahlt wird nur die Erweiterung.
+   */
+  readonly upgradeCost: Cost;
 }
 
 export const BUILDING_SPECS: Record<BuildingType, BuildingSpec> = {
@@ -124,6 +158,12 @@ export const BUILDING_SPECS: Record<BuildingType, BuildingSpec> = {
     footprint: 2,
     placement: Placement.Land,
     isSink: false,
+    carriers: 0,
+    ships: 0,
+    isPort: false,
+    spriteScale: 1,
+    upgradesTo: -1,
+    upgradeCost: cost({}),
   },
   [BuildingType.Sawmill]: {
     name: 'Saegewerk',
@@ -140,6 +180,12 @@ export const BUILDING_SPECS: Record<BuildingType, BuildingSpec> = {
     footprint: 2,
     placement: Placement.Land,
     isSink: false,
+    carriers: 0,
+    ships: 0,
+    isPort: false,
+    spriteScale: 1,
+    upgradesTo: -1,
+    upgradeCost: cost({}),
   },
   [BuildingType.Storehouse]: {
     name: 'Lager',
@@ -154,6 +200,12 @@ export const BUILDING_SPECS: Record<BuildingType, BuildingSpec> = {
     footprint: 2,
     placement: Placement.Land,
     isSink: true,
+    carriers: 4,
+    ships: 0,
+    isPort: false,
+    spriteScale: 1,
+    upgradesTo: -1,
+    upgradeCost: cost({}),
   },
   [BuildingType.Quarry]: {
     name: 'Steinbruch',
@@ -170,6 +222,12 @@ export const BUILDING_SPECS: Record<BuildingType, BuildingSpec> = {
     footprint: 2,
     placement: Placement.NearResource,
     isSink: false,
+    carriers: 0,
+    ships: 0,
+    isPort: false,
+    spriteScale: 1,
+    upgradesTo: -1,
+    upgradeCost: cost({}),
   },
   [BuildingType.Harbor]: {
     name: 'Hafen',
@@ -190,6 +248,68 @@ export const BUILDING_SPECS: Record<BuildingType, BuildingSpec> = {
     // Der Hafen ist zugleich Umschlagplatz: Traeger liefern dort ab und
     // holen dort, Schiffe gleichen die Bestaende zwischen den Haefen aus.
     isSink: true,
+    carriers: 4,
+    // Zwei Schiffe - das ist der eigentliche Gewinn gegenueber dem kleinen
+    // Hafen, der nur eines unterhaelt.
+    ships: 2,
+    isPort: true,
+    spriteScale: 1,
+    upgradesTo: -1,
+    upgradeCost: cost({}),
+  },
+
+  // --- Vorstufen ohne Stein --------------------------------------------
+  //
+  // Stein ist die einzige Ware ohne Nachschub: aus dem Startvorrat lassen
+  // sich nur wenige Lager bauen, und ohne ein Lager in der Naehe ist ein
+  // entfernter Steinbruch nicht zu betreiben. Wer den Startstein
+  // ausgegeben hat, kam damit an keinen neuen Stein mehr - eine Sackgasse.
+  //
+  // Beide Vorstufen kosten deshalb NUR Holz und sind damit immer wieder
+  // erreichbar. Die Regel dahinter: nichts, was zur Erschliessung einer
+  // Ware noetig ist, darf diese Ware kosten. Ein Test haelt sie fest.
+  [BuildingType.Depot]: {
+    name: 'Umschlagplatz',
+    cost: cost({ [Good.Wood]: 4 }),
+    consumes: -1,
+    produces: -1,
+    workTicks: 0,
+    outputCap: 0,
+    harvestTile: -1,
+    harvestRadius: 0,
+    harvestConsumes: false,
+    footprint: 2,
+    placement: Placement.Land,
+    isSink: true,
+    // Halb so viele Traeger wie das Lager: der Umschlagplatz macht einen
+    // entfernten Steinbruch moeglich, ersetzt das Lager aber nicht.
+    carriers: 2,
+    ships: 0,
+    isPort: false,
+    spriteScale: 0.68,
+    upgradesTo: BuildingType.Storehouse,
+    upgradeCost: cost({ [Good.Plank]: 3, [Good.Stone]: 2 }),
+  },
+  [BuildingType.SmallHarbor]: {
+    name: 'Kleiner Hafen',
+    cost: cost({ [Good.Wood]: 5 }),
+    consumes: -1,
+    produces: Good.Fish,
+    // Deutlich traeger als der grosse Hafen.
+    workTicks: 140,
+    outputCap: 3,
+    harvestTile: Tile.Water,
+    harvestRadius: 2,
+    harvestConsumes: false,
+    footprint: 2,
+    placement: Placement.Coast,
+    isSink: true,
+    carriers: 2,
+    ships: 1,
+    isPort: true,
+    spriteScale: 0.72,
+    upgradesTo: BuildingType.Harbor,
+    upgradeCost: cost({ [Good.Plank]: 3, [Good.Stone]: 2 }),
   },
 };
 

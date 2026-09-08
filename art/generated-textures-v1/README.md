@@ -1,5 +1,10 @@
 # Generated Textures v1
 
+> Hinweis: Die Bodenkacheln unter `game-ready/terrain` wurden nachtraeglich
+> gemittelt und gespiegelt. Sie sind durch den nativen Pixel-Satz unter
+> `art/generated-textures-v2/terrain` ersetzt und sollten nicht integriert
+> werden. Gebaeude, Schiffe und Warensymbole aus v1 bleiben gueltig.
+
 Dieser Satz wurde mit dem eingebauten OpenAI-ImageGen-Modell als einzelne
 Bilddateien erzeugt. Es wurden keine Atlas- oder Uebersichtsblaetter als Quelle
 verwendet.

@@ -176,8 +176,13 @@ export class Hud {
       const type = BUILD_TYPE[entry.mode];
       if (!tile || type === undefined) continue;
       const sprite = this.assets.buildings[type]?.[0];
+      // Vorstufen benutzen das Bild ihrer Ausbaustufe. Damit die beiden
+      // Kacheln im Menue nicht identisch aussehen, wird das Icon genauso
+      // verkleinert wie das Gebaeude auf der Karte.
+      const scale = BUILDING_SPECS[type].spriteScale;
+      const style = scale === 1 ? '' : ` style="width:${Math.round(scale * 100)}%"`;
       tile.innerHTML =
-        (sprite ? `<img src="${sprite.src}" alt="">` : '<span class="is-noicon"></span>') +
+        (sprite ? `<img src="${sprite.src}"${style} alt="">` : '<span class="is-noicon"></span>') +
         `<span class="is-tile-name">${entry.label}</span>` +
         `<span class="is-tile-cost">${this.costMarks(BUILDING_SPECS[type].cost)}</span>`;
     }

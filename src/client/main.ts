@@ -11,10 +11,11 @@
  * Verzoegerung aus dem Netz.
  */
 
-import { canAfford } from '../sim/commands';
+import { canAfford, canUpgrade } from '../sim/commands';
 import { parseKey } from '../sim/coords';
 import { hashWorldHex, serialize, deserialize } from '../sim/serialize';
 import {
+  buildingIdAt,
   canPlaceBuilding,
   createWorld,
   getTile,
@@ -186,6 +187,26 @@ async function boot(): Promise<void> {
 function buildPreview(): BuildPreview | null {
   const hover = input.hoverTile();
   if (!hover) return null;
+
+  // Im Ausbaumodus zeigt die Vorschau das getroffene Gebaeude, nicht die
+  // Kachel unter dem Zeiger: sonst sieht man nicht, ob man das Haus ueber-
+  // haupt erwischt und ob der Ausbau bezahlbar ist.
+  if (input.mode === Mode.Upgrade) {
+    const id = buildingIdAt(world, hover.x, hover.y);
+    const b = id === undefined ? undefined : world.state.buildings.get(id);
+    if (!b) {
+      return { x: hover.x, y: hover.y, footprint: 1, valid: false, snapped: false, image: null };
+    }
+    const next = BUILDING_SPECS[b.type].upgradesTo;
+    return {
+      x: b.x,
+      y: b.y,
+      footprint: BUILDING_SPECS[b.type].footprint,
+      valid: canUpgrade(world, hover.x, hover.y),
+      snapped: false,
+      image: next === -1 ? null : (gameAssets.buildings[next]?.[0] ?? null),
+    };
+  }
 
   const type = BUILD_TYPE[input.mode];
   if (type === undefined) {

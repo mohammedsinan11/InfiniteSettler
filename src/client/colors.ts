@@ -25,6 +25,8 @@ export const BUILDING_COLOR: Record<BuildingType, string> = {
   [BuildingType.Storehouse]: '#9c5fbf',
   [BuildingType.Harbor]: '#3f88b5',
   [BuildingType.Quarry]: '#7d7a72',
+  [BuildingType.Depot]: '#b487d1',
+  [BuildingType.SmallHarbor]: '#6aa8cc',
 };
 
 export const GOOD_COLOR: Record<Good, string> = {

@@ -16,9 +16,12 @@ export const Mode = {
   Woodcutter: 'woodcutter',
   Sawmill: 'sawmill',
   Quarry: 'quarry',
+  Depot: 'depot',
   Storehouse: 'storehouse',
+  SmallHarbor: 'smallharbor',
   Harbor: 'harbor',
   Demolish: 'demolish',
+  Upgrade: 'upgrade',
 } as const;
 export type Mode = (typeof Mode)[keyof typeof Mode];
 
@@ -47,16 +50,23 @@ export const MODES: readonly ModeEntry[] = [
   { mode: Mode.Woodcutter, key: '3', label: 'Holzfaeller', group: ModeGroup.Building },
   { mode: Mode.Sawmill, key: '4', label: 'Saegewerk', group: ModeGroup.Building },
   { mode: Mode.Quarry, key: '5', label: 'Steinbruch', group: ModeGroup.Building },
-  { mode: Mode.Storehouse, key: '6', label: 'Lager', group: ModeGroup.Building },
-  { mode: Mode.Harbor, key: '7', label: 'Hafen', group: ModeGroup.Building },
-  { mode: Mode.Demolish, key: '8', label: 'Abreissen', group: ModeGroup.Remove },
+  // Die Vorstufe steht jeweils VOR ihrer Ausbaustufe - das Baumenue liest
+  // sich damit von guenstig nach teuer.
+  { mode: Mode.Depot, key: '6', label: 'Umschlagplatz', group: ModeGroup.Building },
+  { mode: Mode.Storehouse, key: '7', label: 'Lager', group: ModeGroup.Building },
+  { mode: Mode.SmallHarbor, key: '8', label: 'Kleiner Hafen', group: ModeGroup.Building },
+  { mode: Mode.Harbor, key: '9', label: 'Hafen', group: ModeGroup.Building },
+  { mode: Mode.Upgrade, key: 'e', label: 'Ausbauen', group: ModeGroup.Remove },
+  { mode: Mode.Demolish, key: '0', label: 'Abreissen', group: ModeGroup.Remove },
 ];
 
 export const BUILD_TYPE: Partial<Record<Mode, BuildingType>> = {
   [Mode.Woodcutter]: BuildingType.Woodcutter,
   [Mode.Sawmill]: BuildingType.Sawmill,
   [Mode.Quarry]: BuildingType.Quarry,
+  [Mode.Depot]: BuildingType.Depot,
   [Mode.Storehouse]: BuildingType.Storehouse,
+  [Mode.SmallHarbor]: BuildingType.SmallHarbor,
   [Mode.Harbor]: BuildingType.Harbor,
 };
 
@@ -219,7 +229,11 @@ export class Input {
       this.flingX = this.flingX * 0.6 + ((dx / dtMs) * 1000) * 0.4;
       this.flingY = this.flingY * 0.6 + ((dy / dtMs) * 1000) * 0.4;
       this.lastMoveAt = e.timeStamp;
-    } else if (this.mode === Mode.Road || this.mode === Mode.Demolish) {
+    } else if (
+      this.mode === Mode.Road ||
+      this.mode === Mode.Demolish ||
+      this.mode === Mode.Upgrade
+    ) {
       // Strassen und Abriss lassen sich ziehen, Gebaeude nicht.
       this.paintAt(e.clientX, e.clientY);
     }
@@ -332,6 +346,10 @@ export class Input {
     }
     if (this.mode === Mode.Demolish) {
       this.queue.push({ t: 'demolish', x, y });
+      return;
+    }
+    if (this.mode === Mode.Upgrade) {
+      this.queue.push({ t: 'upgrade', x, y });
       return;
     }
     const bt = BUILD_TYPE[this.mode];
