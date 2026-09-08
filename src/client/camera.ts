@@ -122,6 +122,24 @@ export class Camera {
     this.hasAnchor = true;
   }
 
+  /**
+   * Zwei-Finger-Zoom: sofort und ohne Animation, mit dem Punkt zwischen
+   * den Fingern als Anker. Beim Zusammenziehen soll das Bild dem Finger
+   * folgen - eine Animation wuerde sich dabei traege und entkoppelt
+   * anfuehlen, anders als beim Mausrad.
+   */
+  pinch(sx: number, sy: number, ratio: number): void {
+    const worldX = this.screenToWorldX(sx);
+    const worldY = this.screenToWorldY(sy);
+    this.zoom = Math.min(this.maxZoom, Math.max(this.minZoom, this.zoom * ratio));
+    this.targetZoom = this.zoom;
+    this.x = worldX - (sx - this.viewW / 2) / this.zoom;
+    this.y = worldY - (sy - this.viewH / 2) / this.zoom;
+    this.vx = 0;
+    this.vy = 0;
+    this.hasAnchor = false;
+  }
+
   /** Waehrend des Ziehens: 1:1 mitbewegen, ohne Traegheit. */
   dragBy(dxPixels: number, dyPixels: number): void {
     this.x -= dxPixels / this.zoom;

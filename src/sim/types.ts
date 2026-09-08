@@ -5,14 +5,25 @@ export const Good = {
   Wood: 0,
   Plank: 1,
   Fish: 2,
+  Stone: 3,
 } as const;
 export type Good = (typeof Good)[keyof typeof Good];
 
-export const GOOD_COUNT = 3;
+export const GOOD_COUNT = 4;
 export const GOOD_NAMES: Record<Good, string> = {
   [Good.Wood]: 'Holz',
   [Good.Plank]: 'Bretter',
   [Good.Fish]: 'Fisch',
+  [Good.Stone]: 'Stein',
+};
+
+/** Baukosten als Warenliste, Index = Good. */
+export type Cost = readonly number[];
+
+const cost = (entries: Partial<Record<Good, number>>): Cost => {
+  const out = new Array<number>(GOOD_COUNT).fill(0);
+  for (const [good, n] of Object.entries(entries)) out[Number(good)] = n as number;
+  return out;
 };
 
 export const BuildingType = {
@@ -20,6 +31,7 @@ export const BuildingType = {
   Sawmill: 1,
   Storehouse: 2,
   Harbor: 3,
+  Quarry: 4,
 } as const;
 export type BuildingType = (typeof BuildingType)[keyof typeof BuildingType];
 
@@ -67,6 +79,11 @@ export interface BuildingSpec {
   readonly harvestConsumes: boolean;
   /** Wo das Gebaeude stehen darf. */
   readonly placement: Placement;
+  /**
+   * Was der Bau kostet. Die Waren muessen per Traeger angeliefert werden;
+   * bis dahin ist das Gebaeude eine Baustelle und arbeitet nicht.
+   */
+  readonly cost: Cost;
   /** Nimmt alles an und gibt nichts wieder ab. */
   readonly isSink: boolean;
 }
@@ -74,6 +91,10 @@ export interface BuildingSpec {
 export const BUILDING_SPECS: Record<BuildingType, BuildingSpec> = {
   [BuildingType.Woodcutter]: {
     name: 'Holzfaeller',
+    // Bewusst kostenlos: er ist der Einstieg in die gesamte Kette. Kostete
+    // er Bretter, koennte eine Siedlung ohne Bretter nie wieder welche
+    // herstellen - eine Sackgasse ohne Ausweg.
+    cost: cost({}),
     consumes: -1,
     produces: Good.Wood,
     workTicks: 60,
@@ -86,6 +107,9 @@ export const BUILDING_SPECS: Record<BuildingType, BuildingSpec> = {
   },
   [BuildingType.Sawmill]: {
     name: 'Saegewerk',
+    // Kostet HOLZ, nicht Bretter. Sonst braeuchte man Bretter, um die
+    // Brettproduktion zu bauen.
+    cost: cost({ [Good.Wood]: 3 }),
     consumes: Good.Wood,
     produces: Good.Plank,
     workTicks: 40,
@@ -98,6 +122,7 @@ export const BUILDING_SPECS: Record<BuildingType, BuildingSpec> = {
   },
   [BuildingType.Storehouse]: {
     name: 'Lager',
+    cost: cost({ [Good.Plank]: 4, [Good.Stone]: 2 }),
     consumes: -1,
     produces: -1,
     workTicks: 0,
@@ -108,8 +133,24 @@ export const BUILDING_SPECS: Record<BuildingType, BuildingSpec> = {
     placement: Placement.Land,
     isSink: true,
   },
+  [BuildingType.Quarry]: {
+    name: 'Steinbruch',
+    cost: cost({ [Good.Plank]: 2 }),
+    consumes: -1,
+    produces: Good.Stone,
+    workTicks: 75,
+    outputCap: 4,
+    harvestTile: Tile.Stone,
+    harvestRadius: 5,
+    // Fels ist endlich: der abgebaute Untergrund wird zu Gras, der
+    // Steinbruch versiegt also wie der Holzfaeller.
+    harvestConsumes: true,
+    placement: Placement.Land,
+    isSink: false,
+  },
   [BuildingType.Harbor]: {
     name: 'Hafen',
+    cost: cost({ [Good.Plank]: 3, [Good.Stone]: 2 }),
     consumes: -1,
     produces: Good.Fish,
     // Langsamer als der Holzfaeller: der Hafen versiegt nie, dafuer
@@ -140,6 +181,13 @@ export interface Building {
   reserved: number[];
   /** Von Traegern bereits unterwegs hierher - verhindert Ueberlieferung. */
   incoming: number[];
+  /**
+   * false = Baustelle. Sie fordert ihre Baukosten wie ein Verbraucher an
+   * und wird zum fertigen Gebaeude, sobald alles geliefert ist. Dadurch
+   * traegt das vorhandene Transportsystem den Bau unveraendert mit - eine
+   * Baustelle ist schlicht ein Gebaeude mit consumes und ohne produces.
+   */
+  built: boolean;
 }
 
 export const CarrierState = {

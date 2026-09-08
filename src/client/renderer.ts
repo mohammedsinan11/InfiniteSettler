@@ -551,6 +551,10 @@ export class Renderer {
     const sx = cam.worldToScreenX(b.x);
     const sy = cam.worldToScreenY(b.y);
 
+    // Baustellen blass und mit Baufortschritt, damit man auf einen Blick
+    // sieht, worauf die Siedlung gerade wartet.
+    if (!b.built) ctx.globalAlpha = 0.4;
+
     if (image) {
       this.drawBottomCentered(image, b.x + 0.5, b.y + 1.05, z * 3.15);
     } else {
@@ -561,11 +565,35 @@ export class Renderer {
       ctx.strokeRect(sx + 0.5, sy + 0.5, z - 1, z - 1);
     }
 
+    ctx.globalAlpha = 1;
+
+    const spec = BUILDING_SPECS[b.type];
+
+    if (!b.built) {
+      // Balken zeigt den Anteil der bereits gelieferten Baukosten.
+      let need = 0;
+      let have = 0;
+      for (let g = 0; g < GOOD_COUNT; g++) {
+        need += spec.cost[g];
+        have += Math.min(b.input[g], spec.cost[g]);
+      }
+      const frac = need === 0 ? 1 : have / need;
+      ctx.fillStyle = 'rgba(16,24,29,0.8)';
+      ctx.fillRect(sx, sy + z - 4, z, 4);
+      ctx.fillStyle = '#e0932f';
+      ctx.fillRect(sx, sy + z - 4, z * frac, 4);
+      ctx.strokeStyle = 'rgba(224,147,47,0.85)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      ctx.strokeRect(sx + 0.5, sy + 0.5, z - 1, z - 1);
+      ctx.setLineDash([]);
+      return;
+    }
+
     if (z < 10) return;
 
     // Produktionsfortschritt und Waren bleiben als knappe Status-Overlays
     // erhalten; sie liegen an der logischen Kachel statt auf dem Dach.
-    const spec = BUILDING_SPECS[b.type];
     if (spec.workTicks > 0 && b.progress >= 0) {
       const frac = b.progress / spec.workTicks;
       ctx.fillStyle = 'rgba(16,24,29,0.78)';

@@ -15,25 +15,47 @@ export const Mode = {
   Road: 'road',
   Woodcutter: 'woodcutter',
   Sawmill: 'sawmill',
+  Quarry: 'quarry',
   Storehouse: 'storehouse',
   Harbor: 'harbor',
   Demolish: 'demolish',
 } as const;
 export type Mode = (typeof Mode)[keyof typeof Mode];
 
-export const MODE_LABELS: Array<[Mode, string, string]> = [
-  [Mode.Pan, '1', 'Ansehen'],
-  [Mode.Road, '2', 'Strasse'],
-  [Mode.Woodcutter, '3', 'Holzfaeller'],
-  [Mode.Sawmill, '4', 'Saegewerk'],
-  [Mode.Storehouse, '5', 'Lager'],
-  [Mode.Harbor, '6', 'Hafen'],
-  [Mode.Demolish, '7', 'Abreissen'],
+/**
+ * Gruppen der Werkzeugleiste. Vorher standen alle Knoepfe in einer Reihe;
+ * mit sieben Gebaeuden wird daraus eine unlesbare Kette. Die Gruppierung
+ * trennt "womit sehe und zeichne ich" von "was baue ich".
+ */
+export const ModeGroup = {
+  Tool: 'werkzeug',
+  Building: 'gebaeude',
+  Remove: 'abriss',
+} as const;
+export type ModeGroup = (typeof ModeGroup)[keyof typeof ModeGroup];
+
+export interface ModeEntry {
+  readonly mode: Mode;
+  readonly key: string;
+  readonly label: string;
+  readonly group: ModeGroup;
+}
+
+export const MODES: readonly ModeEntry[] = [
+  { mode: Mode.Pan, key: '1', label: 'Ansehen', group: ModeGroup.Tool },
+  { mode: Mode.Road, key: '2', label: 'Strasse', group: ModeGroup.Tool },
+  { mode: Mode.Woodcutter, key: '3', label: 'Holzfaeller', group: ModeGroup.Building },
+  { mode: Mode.Sawmill, key: '4', label: 'Saegewerk', group: ModeGroup.Building },
+  { mode: Mode.Quarry, key: '5', label: 'Steinbruch', group: ModeGroup.Building },
+  { mode: Mode.Storehouse, key: '6', label: 'Lager', group: ModeGroup.Building },
+  { mode: Mode.Harbor, key: '7', label: 'Hafen', group: ModeGroup.Building },
+  { mode: Mode.Demolish, key: '8', label: 'Abreissen', group: ModeGroup.Remove },
 ];
 
-const BUILD_TYPE: Partial<Record<Mode, BuildingType>> = {
+export const BUILD_TYPE: Partial<Record<Mode, BuildingType>> = {
   [Mode.Woodcutter]: BuildingType.Woodcutter,
   [Mode.Sawmill]: BuildingType.Sawmill,
+  [Mode.Quarry]: BuildingType.Quarry,
   [Mode.Storehouse]: BuildingType.Storehouse,
   [Mode.Harbor]: BuildingType.Harbor,
 };
@@ -46,6 +68,17 @@ export class Input {
   private keys = new Set<string>();
   private pointerDown = false;
   private panning = false;
+  /**
+   * Alle aktiven Zeiger. Auf dem Handy gibt es keine rechte Maustaste und
+   * keine Tastatur - zwei Finger sind dort die einzige Moeglichkeit, im
+   * Baumodus zu schieben und zu zoomen, ohne versehentlich zu bauen.
+   */
+  private pointers = new Map<number, { x: number; y: number }>();
+  private gestureDist = 0;
+  private gestureMidX = 0;
+  private gestureMidY = 0;
+  /** Laenge der Warteschlange vor dem letzten Zeigerdruck. */
+  private queueBeforePress = 0;
   private lastX = 0;
   private lastY = 0;
   private hoverX: number | null = null;
@@ -64,6 +97,7 @@ export class Input {
     canvas.addEventListener('pointerdown', this.onPointerDown);
     canvas.addEventListener('pointermove', this.onPointerMove);
     window.addEventListener('pointerup', this.onPointerUp);
+    window.addEventListener('pointercancel', this.onPointerUp);
     canvas.addEventListener('wheel', this.onWheel, { passive: false });
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     canvas.addEventListener('pointerleave', () => {
@@ -119,6 +153,26 @@ export class Input {
     } catch {
       /* Pointer-Capture ist optional - ohne sie funktioniert alles weiter. */
     }
+
+    this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (this.pointers.size === 2) {
+      // Zweiter Finger: aus dem Malen wird eine Schieb-/Zoomgeste.
+      //
+      // Der erste Finger hat im Baumodus aber schon einen Bau in die
+      // Warteschlange gelegt. Auf dem Handy ist die Zwei-Finger-Geste die
+      // einzige Art zu schieben, also darf sie nicht jedes Mal ein
+      // ungewolltes Gebaeude hinterlassen - der Eintrag wird zurueckgenommen.
+      this.queue.length = this.queueBeforePress;
+      this.pointerDown = false;
+      this.panning = false;
+      this.lastPainted = '';
+      this.beginGesture();
+      this.cam.stopMotion();
+      return;
+    }
+    if (this.pointers.size > 2) return;
+
+    this.queueBeforePress = this.queue.length;
     this.pointerDown = true;
     this.lastX = e.clientX;
     this.lastY = e.clientY;
@@ -134,6 +188,14 @@ export class Input {
   };
 
   private onPointerMove = (e: PointerEvent): void => {
+    if (this.pointers.has(e.pointerId)) {
+      this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+    if (this.pointers.size >= 2) {
+      this.handleGesture();
+      return;
+    }
+
     const rect = this.canvas.getBoundingClientRect();
     this.hoverX = Math.floor(this.cam.screenToWorldX(e.clientX - rect.left));
     this.hoverY = Math.floor(this.cam.screenToWorldY(e.clientY - rect.top));
@@ -159,7 +221,55 @@ export class Input {
     this.lastY = e.clientY;
   };
 
+  private beginGesture(): void {
+    const [a, b] = [...this.pointers.values()];
+    const rect = this.canvas.getBoundingClientRect();
+    this.gestureDist = Math.hypot(a.x - b.x, a.y - b.y);
+    this.gestureMidX = (a.x + b.x) / 2 - rect.left;
+    this.gestureMidY = (a.y + b.y) / 2 - rect.top;
+  }
+
+  /** Zwei Finger: Mittelpunkt schiebt, Abstand zoomt. */
+  private handleGesture(): void {
+    const [a, b] = [...this.pointers.values()];
+    const rect = this.canvas.getBoundingClientRect();
+    const dist = Math.hypot(a.x - b.x, a.y - b.y);
+    const midX = (a.x + b.x) / 2 - rect.left;
+    const midY = (a.y + b.y) / 2 - rect.top;
+
+    if (this.gestureDist <= 0) {
+      this.gestureDist = dist;
+      this.gestureMidX = midX;
+      this.gestureMidY = midY;
+      return;
+    }
+
+    // Erst schieben (Mittelpunkt), dann zoomen (Abstand) - beides in
+    // derselben Geste, wie man es von Karten-Apps kennt.
+    this.cam.dragBy(midX - this.gestureMidX, midY - this.gestureMidY);
+    const ratio = dist / this.gestureDist;
+    // Winzige Schwankungen ignorieren, sonst zittert das Bild beim Halten.
+    if (Math.abs(ratio - 1) > 0.01) this.cam.pinch(midX, midY, ratio);
+
+    this.gestureDist = dist;
+    this.gestureMidX = midX;
+    this.gestureMidY = midY;
+  }
+
   private onPointerUp = (e: PointerEvent): void => {
+    this.pointers.delete(e.pointerId);
+    if (this.pointers.size >= 2) {
+      this.beginGesture();
+      return;
+    }
+    if (this.pointers.size === 1) {
+      // Ein Finger bleibt liegen: keine Restbewegung ausloesen.
+      this.gestureDist = 0;
+      this.pointerDown = false;
+      this.panning = false;
+      return;
+    }
+    this.gestureDist = 0;
     // Nur nachrutschen lassen, wenn der Zeiger zuletzt wirklich in Bewegung war.
     if (this.panning && e.timeStamp - this.lastMoveAt < 80) {
       this.cam.fling(this.flingX, this.flingY);
@@ -205,8 +315,8 @@ export class Input {
   private onKeyDown = (e: KeyboardEvent): void => {
     const k = e.key.toLowerCase();
     this.keys.add(k);
-    const idx = Number(k) - 1;
-    if (idx >= 0 && idx < MODE_LABELS.length) this.setMode(MODE_LABELS[idx][0]);
+    const entry = MODES.find((m) => m.key === k);
+    if (entry) this.setMode(entry.mode);
   };
 
   private onKeyUp = (e: KeyboardEvent): void => {

@@ -24,12 +24,14 @@ export const BUILDING_COLOR: Record<BuildingType, string> = {
   [BuildingType.Sawmill]: '#c08a3e',
   [BuildingType.Storehouse]: '#9c5fbf',
   [BuildingType.Harbor]: '#3f88b5',
+  [BuildingType.Quarry]: '#7d7a72',
 };
 
 export const GOOD_COLOR: Record<Good, string> = {
   [Good.Wood]: '#7a4a1e',
   [Good.Plank]: '#d8a85a',
   [Good.Fish]: '#8fc7d4',
+  [Good.Stone]: '#a9a49b',
 };
 
 // Deutlich dunkler als Sand (#c9b884) gewaehlt: eine helle Strasse ist auf

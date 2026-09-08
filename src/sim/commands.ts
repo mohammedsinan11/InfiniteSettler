@@ -18,8 +18,10 @@ import {
 import { isBuildable } from './terrain';
 import { getTile } from './state';
 import {
+  BUILDING_SPECS,
   BuildingType,
   CarrierState,
+  Good,
   type Carrier,
 } from './types';
 
@@ -30,6 +32,16 @@ export type Command =
 
 /** Jedes neue Lager bringt eigene Traeger mit. */
 const CARRIERS_PER_STOREHOUSE = 4;
+
+/**
+ * Startausstattung des allerersten Gebaeudes.
+ *
+ * Ohne sie waere das Spiel nicht startbar: jedes Gebaeude kostet Bretter,
+ * Bretter kommen aus dem Saegewerk, und das Saegewerk kostet Bretter. Der
+ * erste Bau ist deshalb geschenkt und - wenn es ein Lager ist - gefuellt.
+ */
+const STARTER_PLANKS = 12;
+const STARTER_STONE = 8;
 
 /** Wendet einen Command an. false = ungueltig und folgenlos verworfen. */
 export function applyCommand(world: World, cmd: Command): boolean {
@@ -52,8 +64,29 @@ function doBuild(
   if (!canPlaceBuilding(world, bt, x, y)) return false;
 
   const s = world.state;
+  // VOR dem Hochzaehlen pruefen, sonst ist der Zaehler schon weiter.
+  const isFirst = s.nextId === 1;
   const id = s.nextId++;
-  s.buildings.set(id, makeBuilding(id, bt, x, y));
+  // Zwei Ausnahmen von der Baustellenregel, beide gegen Sackgassen:
+  //
+  //  - Der allererste Bau einer Welt entsteht fertig, und ist es ein Lager,
+  //    auch gefuellt. Ohne das gaebe es keinen Startpunkt.
+  //  - Gibt es kein Lager mehr, ist das naechste umsonst - aber leer. Ohne
+  //    Lager gibt es keine Traeger, also koennte auch keine Baustelle mehr
+  //    beliefert werden. Weil es leer bleibt, laesst sich damit nichts
+  //    erwirtschaften; es ist nur der Weg zurueck ins Spiel.
+  // isFirst haengt an nextId und nicht an buildings.size: sonst liesse
+  // sich durch Abreissen aller Gebaeude der Startvorrat neu abholen.
+  const rescue = bt === BuildingType.Storehouse && !hasStorehouse(s);
+  // Was nichts kostet, steht sofort - sonst waere der Holzfaeller einen
+  // Tick lang eine Baustelle, auf die niemand etwas liefern muesste.
+  const free = BUILDING_SPECS[bt].cost.every((n) => n === 0);
+  const building = makeBuilding(id, bt, x, y, isFirst || rescue || free);
+  if (isFirst && bt === BuildingType.Storehouse) {
+    building.input[Good.Plank] = STARTER_PLANKS;
+    building.input[Good.Stone] = STARTER_STONE;
+  }
+  s.buildings.set(id, building);
   s.buildingAt.set(tileKey(x, y), id);
   // Ein Gebaeude ist selbst begehbar; die Strasse darunter waere sonst weg.
   s.roads.delete(tileKey(x, y));
@@ -79,6 +112,13 @@ function doBuild(
 
   return true;
 }
+
+const hasStorehouse = (s: World['state']): boolean => {
+  for (const b of s.buildings.values()) {
+    if (b.type === BuildingType.Storehouse) return true;
+  }
+  return false;
+};
 
 function doRoad(world: World, x: number, y: number): boolean {
   const s = world.state;

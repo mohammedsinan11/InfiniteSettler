@@ -15,7 +15,8 @@
 import type { StockSummary } from '../sim/state';
 import { GOOD_NAMES, type Good } from '../sim/types';
 import { GOOD_COLOR } from './colors';
-import { MODE_LABELS, type Mode } from './input';
+import { BUILD_TYPE, ModeGroup, MODES, type Mode } from './input';
+import { BUILDING_SPECS, GOOD_COUNT } from '../sim/types';
 
 export interface HudData {
   tick: number;
@@ -56,23 +57,43 @@ export class Hud {
 
     const bar = document.createElement('div');
     bar.className = 'is-bar';
-    for (const [mode, key, label] of MODE_LABELS) {
+
+    // Nach Gruppen mit Trennern, statt alle Knoepfe in eine Kette zu haengen.
+    let lastGroup: ModeGroup | null = null;
+    for (const entry of MODES) {
+      if (lastGroup !== null && entry.group !== lastGroup) {
+        const sep = document.createElement('span');
+        sep.className = 'is-sep';
+        bar.appendChild(sep);
+      }
+      lastGroup = entry.group;
+
       const b = document.createElement('button');
       b.className = 'is-btn';
-      b.innerHTML = `<b>${key}</b> ${label}`;
-      b.addEventListener('click', () => onMode(mode));
+      b.innerHTML = `<b>${entry.key}</b> ${entry.label}${costLabel(entry.mode)}`;
+      b.addEventListener('click', () => onMode(entry.mode));
       bar.appendChild(b);
-      this.buttons.set(mode, b);
+      this.buttons.set(entry.mode, b);
     }
 
     const spacer = document.createElement('span');
     spacer.className = 'is-spacer';
     bar.appendChild(spacer);
 
+    // Verwaltungsknoepfe auf schmalen Schirmen hinter einem Schalter:
+    // sonst belegt die Kopfleiste auf dem Handy ein Drittel des Bildes.
+    const admin = document.createElement('div');
+    admin.className = 'is-admin';
     this.detailBtn = mkButton('Details', () => this.toggleDetails());
-    bar.appendChild(this.detailBtn);
-    bar.appendChild(mkButton('Neue Welt', onNewWorld));
-    bar.appendChild(mkButton('Spielstand loeschen', onReset));
+    admin.appendChild(this.detailBtn);
+    admin.appendChild(mkButton('Neue Welt', onNewWorld));
+    admin.appendChild(mkButton('Spielstand loeschen', onReset));
+
+    const more = mkButton('\u22ef', () => admin.classList.toggle('is-open'));
+    more.classList.add('is-more');
+    more.title = 'Mehr';
+    bar.appendChild(more);
+    bar.appendChild(admin);
 
     this.res = document.createElement('div');
     this.res.className = 'is-res';
@@ -165,6 +186,22 @@ export class Hud {
   }
 }
 
+/** Baukosten als kleine Warenmarken auf dem Knopf. */
+function costLabel(mode: Mode): string {
+  const type = BUILD_TYPE[mode];
+  if (type === undefined) return '';
+  const cost = BUILDING_SPECS[type].cost;
+  const parts: string[] = [];
+  for (let g = 0; g < GOOD_COUNT; g++) {
+    if (cost[g] > 0) {
+      parts.push(
+        `<i style="background:${GOOD_COLOR[g as Good]}"></i>${cost[g]}`,
+      );
+    }
+  }
+  return parts.length === 0 ? '' : `<span class="is-cost">${parts.join('')}</span>`;
+}
+
 function mkButton(label: string, onClick: () => void): HTMLButtonElement {
   const b = document.createElement('button');
   b.className = 'is-btn is-alt';
@@ -197,6 +234,16 @@ function injectStyles(): void {
     }
     .is-btn:hover { background: #24343f; }
     .is-btn b { color: #8fb4d9; margin-right: 3px; }
+    .is-sep {
+      width: 1px; align-self: stretch; margin: 2px 4px;
+      background: rgba(255,255,255,0.14);
+    }
+    .is-cost { margin-left: 6px; color: #9fb0c0; white-space: nowrap; }
+    .is-cost i {
+      display: inline-block; width: 8px; height: 8px; border-radius: 2px;
+      margin: 0 2px 0 4px; vertical-align: baseline;
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,0.5);
+    }
     .is-btn.is-active { background: #33608c; border-color: #5b93c4; color: #fff; }
     .is-btn.is-alt { color: #9aa7b4; }
 
@@ -232,10 +279,33 @@ function injectStyles(): void {
     .is-row span:first-child { color: #7f8c99; }
     .is-hash { color: #7fd1a5; }
 
+    /* Auf Touchgeraeten groessere Ziele: 44 px ist die uebliche
+       Mindestgroesse, darunter trifft man mit dem Finger unzuverlaessig. */
+    .is-admin { display: contents; }
+    .is-more { display: none; }
+
+    @media (pointer: coarse) {
+      .is-btn { padding: 10px 12px; min-height: 44px; }
+      .is-card { padding: 8px 10px; }
+    }
+
     @media (max-width: 720px) {
       /* Nur das Detailfeld schrumpft - die Warenanzeige bleibt. */
       .is-status { min-width: 0; right: 8px; }
-      .is-card { min-width: 96px; }
+      .is-bar { gap: 4px; padding: 6px 6px 0; }
+      .is-res { padding: 6px; gap: 4px; }
+      /* Kosten sind auf schmalen Schirmen wichtiger als die Tastenziffer. */
+      .is-btn b { display: none; }
+      .is-btn { padding: 8px 9px; }
+      /* Der Warenname steht schon als Farbe daneben - auf dem Handy
+         zaehlt, dass alle vier Waren in eine Zeile passen. */
+      .is-card-name { display: none; }
+      .is-card { min-width: 0; padding: 6px 8px; }
+      .is-card-n { margin-left: 2px; }
+      /* Verwaltung erst auf Tippen ausklappen. */
+      .is-more { display: inline-block; }
+      .is-admin { display: none; width: 100%; gap: 4px; }
+      .is-admin.is-open { display: flex; flex-wrap: wrap; }
     }
   `;
   document.head.appendChild(css);

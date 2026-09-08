@@ -15,7 +15,8 @@
     "woodcutter": ["buildings/lumberjack_hut/lumberjack_hut_01.png", "buildings/lumberjack_hut/lumberjack_hut_02.png", "buildings/lumberjack_hut/lumberjack_hut_04.png"],
     "sawmill": ["buildings/sawmill/sawmill_02.png", "buildings/sawmill/sawmill_03.png"],
     "storehouse": ["buildings/warehouse/warehouse_01.png", "buildings/warehouse/warehouse_02.png", "buildings/warehouse/warehouse_03.png", "buildings/warehouse/warehouse_04.png"],
-    "harbor": ["buildings/harbor/harbor_01.png", "buildings/harbor/harbor_02.png", "buildings/harbor/harbor_03.png", "buildings/harbor/harbor_04.png"]
+    "harbor": ["buildings/harbor/harbor_01.png", "buildings/harbor/harbor_02.png", "buildings/harbor/harbor_03.png", "buildings/harbor/harbor_04.png"],
+    "quarry": ["buildings/quarry/quarry_01.png", "buildings/quarry/quarry_02.png", "buildings/quarry/quarry_03.png"]
   },
   "trees": ["trees/oak_02.png", "trees/oak_04.png", "trees/pine_02.png", "trees/pine_03.png", "trees/pine_04.png", "trees/pine_05.png", "trees/pine_06.png", "trees/pine_07.png", "trees/pine_tall_02.png"],
   "resources": {

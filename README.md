@@ -26,9 +26,24 @@ npm run dev
 | `W A S D` / Pfeiltasten | Karte schieben (mit Anlauf und Nachlauf) |
 | `Shift` halten | dreifache Scrollgeschwindigkeit |
 | Mausrad | Zoomen; der Punkt unter dem Cursor bleibt stehen |
-| `1`–`6` | Werkzeug waehlen |
+| `1`–`8` | Werkzeug waehlen |
 | `I` | Detailfeld ein-/ausblenden |
 | Ziehen im Modus *Strasse* / *Abreissen* | mehrere Tiles auf einmal |
+| Zwei Finger (Touch) | schieben und zoomen, auch im Baumodus |
+
+Auf dem Handy ist die Zwei-Finger-Geste die einzige Art zu schieben, weil es
+weder rechte Maustaste noch Tastatur gibt. Setzt man den zweiten Finger auf,
+wird ein bereits ausgeloester Bau wieder zurueckgenommen.
+
+## Bauen
+
+Gebaeude kosten Waren, die per Traeger angeliefert werden muessen; bis dahin
+sind sie Baustellen und arbeiten nicht. Zwei Regeln verhindern Sackgassen:
+der **allererste Bau** einer Welt ist geschenkt und - wenn es ein Lager ist -
+mit Startvorrat gefuellt, und ein **Lager ist kostenlos, solange keines
+steht** (dann aber leer). Der **Holzfaeller kostet nichts** und das
+**Saegewerk kostet Holz statt Bretter**, damit sich die Kette aus dem Nichts
+starten kann.
 
 `#seed=123` in der URL waehlt eine bestimmte Welt. Der Spielstand wird alle
 10 Sekunden automatisch in IndexedDB gesichert.
