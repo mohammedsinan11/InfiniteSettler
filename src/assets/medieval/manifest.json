@@ -19,6 +19,11 @@
     "quarry": ["buildings/quarry/quarry_01.png", "buildings/quarry/quarry_02.png", "buildings/quarry/quarry_03.png"]
   },
   "trees": ["trees/oak_02.png", "trees/oak_04.png", "trees/pine_02.png", "trees/pine_03.png", "trees/pine_04.png", "trees/pine_05.png", "trees/pine_06.png", "trees/pine_07.png", "trees/pine_tall_02.png"],
+  "goods": {
+    "wood": ["resources/wood_01.png", "resources/wood_02.png"],
+    "plank": ["resources/wood_05.png", "resources/wood_06.png"],
+    "stone": ["resources/stone_01.png", "resources/stone_02.png"]
+  },
   "resources": {
     "stone": ["resources/stone_01.png", "resources/stone_02.png", "resources/stone_03.png", "resources/stone_04.png", "resources/stone_05.png", "resources/stone_06.png"],
     "mountain": ["resources/iron_01.png", "resources/iron_02.png", "resources/iron_03.png", "resources/iron_04.png", "resources/iron_05.png", "resources/iron_06.png"]

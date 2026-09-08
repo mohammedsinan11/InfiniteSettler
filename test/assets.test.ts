@@ -2,18 +2,28 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import manifest from '../src/assets/medieval/manifest.json';
 
-const paths = [
-  ...Object.values(manifest.terrain).flat(),
-  ...Object.values(manifest.buildings).flat(),
-  ...manifest.trees,
-  ...Object.values(manifest.resources).flat(),
-  ...Object.values(manifest.carrier),
+/**
+ * Gruppen einzeln, weil Dateien bewusst mehrfach vorkommen duerfen:
+ * stone_01 dient sowohl als Geroell auf der Karte als auch als
+ * Warensymbol fuer Stein. Doppelte innerhalb EINER Gruppe waeren dagegen
+ * ein Fehler - dann zeigte eine Variante zweimal dasselbe Bild.
+ */
+const groups: Array<[string, string[]]> = [
+  ['terrain', Object.values(manifest.terrain).flat()],
+  ['goods', Object.values(manifest.goods).flat()],
+  ['buildings', Object.values(manifest.buildings).flat()],
+  ['trees', [...manifest.trees]],
+  ['resources', Object.values(manifest.resources).flat()],
+  ['carrier', Object.values(manifest.carrier)],
 ];
+const paths = [...new Set(groups.flatMap(([, p]) => p))];
 
 describe('Grafikmanifest', () => {
   it('enthaelt nur eindeutige, vorhandene PNG-Dateien', () => {
-    expect(new Set(paths).size).toBe(paths.length);
-    expect(paths.length).toBe(89);
+    for (const [name, list] of groups) {
+      expect(new Set(list).size, `${name} enthaelt Doppelte`).toBe(list.length);
+    }
+    expect(paths.length).toBe(93);
 
     for (const path of paths) {
       const file = new URL(`../src/assets/medieval/${path}`, import.meta.url);

@@ -1,22 +1,24 @@
 /**
- * Overlay: Werkzeugleiste, Warenanzeige und Detailfeld.
+ * Bedienoberflaeche.
  *
- * Die Warenanzeige ist bewusst ein eigenes Element und nicht Teil des
- * Detailfelds. Vorher steckte sie als eine Zeile unter lauter Debugwerten -
- * und verschwand unterhalb von 640 px Breite komplett mit, weil das ganze
- * Feld ausgeblendet wurde. Die wichtigste Zahl des Spiels war damit auf
- * schmalen Fenstern unsichtbar.
+ * Aufbau: eine schmale Leiste UNTEN in Daumenreichweite mit den vier
+ * Dauerwerkzeugen, ein Bau-Overlay das sich nur auf Tippen oeffnet, und
+ * ein duenner Warenstreifen oben. Die Karte behaelt damit den weitaus
+ * groessten Teil der Flaeche - vorher belegte die Kopfleiste auf dem
+ * Handy ein Drittel des Bildschirms.
  *
- * Der Zustands-Hash im Detailfeld ist kein Debug-Beiwerk, sondern die
- * Vorbereitung auf M5: zwei Clients mit gleichem Seed und gleicher
- * Befehlsfolge muessen denselben Hash zeigen.
+ * Die Icons sind die echten Spielsprites, nicht eigens gezeichnete
+ * Symbole: der Knopf zeigt genau das Gebaeude, das danach auf der Karte
+ * steht. Fuer Waren ohne Sprite (Fisch) faellt die Anzeige auf ein
+ * farbiges Zeichen zurueck.
  */
 
 import type { StockSummary } from '../sim/state';
-import { GOOD_NAMES, type Good } from '../sim/types';
+import { BUILDING_SPECS, GOOD_COUNT, GOOD_NAMES, Good } from '../sim/types';
+import type { GameAssets, GoodSprite } from './assets';
+import { emptyGameAssets } from './assets';
 import { GOOD_COLOR } from './colors';
-import { BUILD_TYPE, ModeGroup, MODES, type Mode } from './input';
-import { BUILDING_SPECS, GOOD_COUNT } from '../sim/types';
+import { BUILD_TYPE, ModeGroup, MODES, Mode } from './input';
 
 export interface HudData {
   tick: number;
@@ -36,92 +38,157 @@ export interface HudData {
   saved: string;
 }
 
-/** Unterhalb dieser Breite startet das Detailfeld eingeklappt. */
+/** Welche Ware welches Sprite bekommt. Nicht jede hat eines. */
+const GOOD_ICON: Partial<Record<Good, GoodSprite>> = {
+  [Good.Wood]: 'wood',
+  [Good.Plank]: 'plank',
+  [Good.Stone]: 'stone',
+};
+
 const NARROW = 720;
 
 export class Hud {
-  private status: HTMLDivElement;
+  private assets: GameAssets = emptyGameAssets();
   private res: HTMLDivElement;
+  private status: HTMLDivElement;
+  private sheet: HTMLDivElement;
+  private admin: HTMLDivElement;
+  private readonly buildBtn: HTMLButtonElement;
   private detailBtn: HTMLButtonElement;
   private buttons = new Map<Mode, HTMLButtonElement>();
   private showDetails = window.innerWidth >= NARROW;
-  /** Zuletzt gerenderte Warenzeile - spart DOM-Arbeit pro Frame. */
   private lastResKey = '';
 
   constructor(
-    onMode: (m: Mode) => void,
+    private onMode: (m: Mode) => void,
     onNewWorld: () => void,
     onReset: () => void,
   ) {
     injectStyles();
 
-    const bar = document.createElement('div');
-    bar.className = 'is-bar';
+    this.buildBtn = this.makeBuildButton();
+    this.res = el('div', 'is-res');
+    this.status = el('div', 'is-status');
+    this.sheet = el('div', 'is-sheet');
+    this.admin = el('div', 'is-admin');
 
-    // Nach Gruppen mit Trennern, statt alle Knoepfe in eine Kette zu haengen.
-    let lastGroup: ModeGroup | null = null;
+    // --- Bau-Overlay -------------------------------------------------
     for (const entry of MODES) {
-      if (lastGroup !== null && entry.group !== lastGroup) {
-        const sep = document.createElement('span');
-        sep.className = 'is-sep';
-        bar.appendChild(sep);
-      }
-      lastGroup = entry.group;
-
-      const b = document.createElement('button');
-      b.className = 'is-btn';
-      b.innerHTML = `<b>${entry.key}</b> ${entry.label}${costLabel(entry.mode)}`;
-      b.addEventListener('click', () => onMode(entry.mode));
-      bar.appendChild(b);
-      this.buttons.set(entry.mode, b);
+      if (entry.group !== ModeGroup.Building) continue;
+      const tile = document.createElement('button');
+      tile.className = 'is-tile';
+      tile.addEventListener('click', () => {
+        this.onMode(entry.mode);
+        this.closeSheet();
+      });
+      this.sheet.appendChild(tile);
+      this.buttons.set(entry.mode, tile);
     }
 
-    const spacer = document.createElement('span');
-    spacer.className = 'is-spacer';
-    bar.appendChild(spacer);
+    // --- Untere Leiste -----------------------------------------------
+    const bar = el('div', 'is-bar');
+    for (const entry of MODES) {
+      if (entry.group === ModeGroup.Building) continue;
+      const b = document.createElement('button');
+      b.className = 'is-btn';
+      b.textContent = entry.label;
+      b.title = `Taste ${entry.key}`;
+      b.addEventListener('click', () => {
+        this.onMode(entry.mode);
+        this.closeSheet();
+      });
+      this.buttons.set(entry.mode, b);
+      bar.appendChild(b);
+      // "Bauen" sitzt zwischen Strasse und Abreissen.
+      if (entry.mode === Mode.Road) bar.appendChild(this.buildBtn);
+    }
 
-    // Verwaltungsknoepfe auf schmalen Schirmen hinter einem Schalter:
-    // sonst belegt die Kopfleiste auf dem Handy ein Drittel des Bildes.
-    const admin = document.createElement('div');
-    admin.className = 'is-admin';
-    this.detailBtn = mkButton('Details', () => this.toggleDetails());
-    admin.appendChild(this.detailBtn);
-    admin.appendChild(mkButton('Neue Welt', onNewWorld));
-    admin.appendChild(mkButton('Spielstand loeschen', onReset));
-
-    const more = mkButton('\u22ef', () => admin.classList.toggle('is-open'));
-    more.classList.add('is-more');
+    const more = document.createElement('button');
+    more.className = 'is-btn is-alt';
+    more.textContent = '⋯';
     more.title = 'Mehr';
+    more.addEventListener('click', () => this.admin.classList.toggle('is-open'));
     bar.appendChild(more);
-    bar.appendChild(admin);
 
-    this.res = document.createElement('div');
-    this.res.className = 'is-res';
+    this.detailBtn = mkButton('Details', () => this.toggleDetails());
+    this.admin.appendChild(this.detailBtn);
+    this.admin.appendChild(mkButton('Neue Welt', onNewWorld));
+    this.admin.appendChild(mkButton('Spielstand loeschen', onReset));
 
-    this.status = document.createElement('div');
-    this.status.className = 'is-status';
-
-    // Beides in einen Container: sobald die Werkzeugleiste umbricht, wuerde
-    // eine separat positionierte Warenanzeige darueberliegen.
-    const top = document.createElement('div');
-    top.className = 'is-top';
-    top.appendChild(bar);
-    top.appendChild(this.res);
-
-    document.body.appendChild(top);
-    document.body.appendChild(this.status);
-
+    document.body.append(this.res, this.status, this.sheet, this.admin, bar);
     window.addEventListener('keydown', (e) => {
       if (e.key.toLowerCase() === 'i') this.toggleDetails();
     });
-
     this.applyDetails();
+    this.refreshTiles();
+  }
+
+  private makeBuildButton(): HTMLButtonElement {
+    const b = document.createElement('button');
+    b.className = 'is-btn is-build';
+    b.innerHTML = '<span class="is-build-label">Bauen</span>';
+    b.addEventListener('click', () => {
+      this.sheet.classList.toggle('is-open');
+      this.admin.classList.remove('is-open');
+    });
+    return b;
+  }
+
+  private closeSheet(): void {
+    this.sheet.classList.remove('is-open');
+    this.admin.classList.remove('is-open');
+  }
+
+  setAssets(assets: GameAssets): void {
+    this.assets = assets;
+    this.lastResKey = '';
+    this.refreshTiles();
+  }
+
+  /** Icons der Bau-Kacheln aus den geladenen Sprites aufbauen. */
+  private refreshTiles(): void {
+    for (const entry of MODES) {
+      if (entry.group !== ModeGroup.Building) continue;
+      const tile = this.buttons.get(entry.mode);
+      const type = BUILD_TYPE[entry.mode];
+      if (!tile || type === undefined) continue;
+      const sprite = this.assets.buildings[type]?.[0];
+      tile.innerHTML =
+        (sprite ? `<img src="${sprite.src}" alt="">` : '<span class="is-noicon"></span>') +
+        `<span class="is-tile-name">${entry.label}</span>` +
+        `<span class="is-tile-cost">${this.costMarks(BUILDING_SPECS[type].cost)}</span>`;
+    }
+  }
+
+  private goodMark(good: Good): string {
+    const key = GOOD_ICON[good];
+    const sprite = key ? this.assets.goods[key]?.[0] : undefined;
+    return sprite
+      ? `<img class="is-mark" src="${sprite.src}" alt="">`
+      : `<i class="is-mark" style="background:${GOOD_COLOR[good]}"></i>`;
+  }
+
+  private costMarks(cost: readonly number[]): string {
+    const parts: string[] = [];
+    for (let g = 0; g < GOOD_COUNT; g++) {
+      if (cost[g] > 0) parts.push(this.goodMark(g as Good) + cost[g]);
+    }
+    return parts.length === 0 ? '<span class="is-free">gratis</span>' : parts.join('');
   }
 
   setMode(m: Mode): void {
-    for (const [mode, btn] of this.buttons) {
-      btn.classList.toggle('is-active', mode === m);
-    }
+    for (const [mode, btn] of this.buttons) btn.classList.toggle('is-active', mode === m);
+    // Der Bauen-Knopf zeigt an, welches Gebaeude gerade gewaehlt ist.
+    const type = BUILD_TYPE[m];
+    const active = type !== undefined;
+    this.buildBtn.classList.toggle('is-active', active);
+    const sprite = active ? this.assets.buildings[type]?.[0] : undefined;
+    const label = active
+      ? (MODES.find((e) => e.mode === m)?.label ?? 'Bauen')
+      : 'Bauen';
+    this.buildBtn.innerHTML =
+      (sprite ? `<img class="is-build-icon" src="${sprite.src}" alt="">` : '') +
+      `<span class="is-build-label">${label}</span>`;
   }
 
   private toggleDetails(): void {
@@ -140,25 +207,22 @@ export class Hud {
   }
 
   private updateResources(s: StockSummary): void {
-    // Nur neu bauen, wenn sich wirklich eine Zahl geaendert hat.
     const key = s.stored.join(',') + '|' + s.total.join(',');
     if (key === this.lastResKey) return;
     this.lastResKey = key;
 
     const cards: string[] = [];
-    for (let g = 0; g < s.stored.length; g++) {
+    for (let g = 0; g < GOOD_COUNT; g++) {
       const good = g as Good;
       const bound = s.total[g] - s.stored[g];
       const title =
-        `${s.stored[g]} im Lager, ${s.buffered[g]} in Gebaeuden, ` +
-        `${s.inTransit[g]} unterwegs`;
+        `${GOOD_NAMES[good]}: ${s.stored[g]} im Lager, ` +
+        `${s.buffered[g]} in Gebaeuden, ${s.inTransit[g]} unterwegs`;
       cards.push(
-        `<div class="is-card" title="${title}">` +
-          `<i style="background:${GOOD_COLOR[good]}"></i>` +
-          `<span class="is-card-name">${GOOD_NAMES[good]}</span>` +
+        `<div class="is-card" title="${title}">${this.goodMark(good)}` +
           `<span class="is-card-n">${s.stored[g]}</span>` +
           (bound > 0 ? `<span class="is-card-sub">+${bound}</span>` : '') +
-          `</div>`,
+          '</div>',
       );
     }
     this.res.innerHTML = cards.join('');
@@ -168,39 +232,23 @@ export class Hud {
     const hover = d.hover ? `${d.hover.x}, ${d.hover.y} (${d.hover.tile})` : '-';
     this.status.innerHTML = [
       row('Seed', String(d.seed)),
-      row('Tick', `${d.tick}  &middot;  ${d.fps.toFixed(0)} FPS`),
+      row('Tick', `${d.tick} &middot; ${d.fps.toFixed(0)} FPS`),
       row('Hash', `<span class="is-hash">${d.hash}</span>`),
-      row(
-        'Kamera',
-        `${d.camX.toFixed(1)}, ${d.camY.toFixed(1)}  &middot;  ${d.zoom.toFixed(1)} px/Tile`,
-      ),
+      row('Kamera', `${d.camX.toFixed(1)}, ${d.camY.toFixed(1)} &middot; ${d.zoom.toFixed(1)} px/Tile`),
       row('Cursor', hover),
-      row(
-        'Chunks',
-        `${d.chunksCached} im Cache &middot; ${d.chunksGenerated} erzeugt` +
-          (d.chunksPending > 0 ? ` &middot; ${d.chunksPending} offen` : ''),
-      ),
+      row('Chunks', `${d.chunksCached} / ${d.chunksGenerated}` +
+        (d.chunksPending > 0 ? ` &middot; ${d.chunksPending} offen` : '')),
       row('Welt', `${d.buildings} Gebaeude &middot; ${d.carriers} Traeger`),
       row('Speicher', d.saved),
     ].join('');
   }
 }
 
-/** Baukosten als kleine Warenmarken auf dem Knopf. */
-function costLabel(mode: Mode): string {
-  const type = BUILD_TYPE[mode];
-  if (type === undefined) return '';
-  const cost = BUILDING_SPECS[type].cost;
-  const parts: string[] = [];
-  for (let g = 0; g < GOOD_COUNT; g++) {
-    if (cost[g] > 0) {
-      parts.push(
-        `<i style="background:${GOOD_COLOR[g as Good]}"></i>${cost[g]}`,
-      );
-    }
-  }
-  return parts.length === 0 ? '' : `<span class="is-cost">${parts.join('')}</span>`;
-}
+const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls: string) => {
+  const node = document.createElement(tag);
+  node.className = cls;
+  return node;
+};
 
 function mkButton(label: string, onClick: () => void): HTMLButtonElement {
   const b = document.createElement('button');
@@ -216,96 +264,97 @@ const row = (k: string, v: string): string =>
 function injectStyles(): void {
   const css = document.createElement('style');
   css.textContent = `
-    .is-top {
-      position: fixed; top: 0; left: 0; right: 0; z-index: 2;
-      background: rgba(12,18,24,0.82);
-      border-bottom: 1px solid rgba(255,255,255,0.08);
-      backdrop-filter: blur(6px);
-    }
     .is-bar {
-      display: flex; gap: 6px; padding: 8px 8px 0;
-      flex-wrap: wrap; align-items: center;
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 3;
+      display: flex; gap: 6px; padding: 8px;
+      justify-content: center; flex-wrap: wrap;
+      background: rgba(12,18,24,0.86);
+      border-top: 1px solid rgba(255,255,255,0.10);
+      backdrop-filter: blur(6px);
+      padding-bottom: max(8px, env(safe-area-inset-bottom));
     }
-    .is-spacer { flex: 1 1 auto; }
     .is-btn {
       font: inherit; color: #cfd8e3; background: #1b2833;
-      border: 1px solid rgba(255,255,255,0.10); border-radius: 5px;
-      padding: 5px 10px; cursor: pointer;
+      border: 1px solid rgba(255,255,255,0.10); border-radius: 6px;
+      padding: 9px 14px; min-height: 42px; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 6px;
     }
     .is-btn:hover { background: #24343f; }
-    .is-btn b { color: #8fb4d9; margin-right: 3px; }
-    .is-sep {
-      width: 1px; align-self: stretch; margin: 2px 4px;
-      background: rgba(255,255,255,0.14);
-    }
-    .is-cost { margin-left: 6px; color: #9fb0c0; white-space: nowrap; }
-    .is-cost i {
-      display: inline-block; width: 8px; height: 8px; border-radius: 2px;
-      margin: 0 2px 0 4px; vertical-align: baseline;
-      box-shadow: inset 0 0 0 1px rgba(0,0,0,0.5);
-    }
     .is-btn.is-active { background: #33608c; border-color: #5b93c4; color: #fff; }
     .is-btn.is-alt { color: #9aa7b4; }
+    .is-build-icon { height: 26px; image-rendering: pixelated; }
 
-    /* Warenanzeige: immer sichtbar, auf jeder Fenstergroesse. */
+    /* Bau-Overlay: nur auf Tippen sichtbar, direkt ueber der Leiste. */
+    .is-sheet {
+      position: fixed; left: 8px; right: 8px; bottom: 68px; z-index: 3;
+      display: none; gap: 6px; flex-wrap: wrap; justify-content: center;
+      padding: 8px; border-radius: 10px;
+      background: rgba(12,18,24,0.94);
+      border: 1px solid rgba(255,255,255,0.12);
+      backdrop-filter: blur(8px);
+    }
+    .is-sheet.is-open { display: flex; }
+    .is-tile {
+      font: inherit; color: #cfd8e3; background: #1b2833;
+      border: 1px solid rgba(255,255,255,0.10); border-radius: 8px;
+      padding: 8px 6px 6px; width: 104px; cursor: pointer;
+      display: flex; flex-direction: column; align-items: center; gap: 2px;
+    }
+    .is-tile:hover { background: #24343f; }
+    .is-tile.is-active { background: #33608c; border-color: #5b93c4; color: #fff; }
+    .is-tile img { height: 46px; image-rendering: pixelated; }
+    .is-noicon { height: 46px; }
+    .is-tile-name { font-size: 12px; }
+    .is-tile-cost { font-size: 11px; color: #9fb0c0; display: flex; align-items: center; gap: 2px; }
+    .is-free { color: #7fd1a5; }
+
+    .is-admin {
+      position: fixed; left: 8px; right: 8px; bottom: 68px; z-index: 4;
+      display: none; gap: 6px; flex-wrap: wrap; justify-content: center;
+      padding: 8px; border-radius: 10px;
+      background: rgba(12,18,24,0.94);
+      border: 1px solid rgba(255,255,255,0.12);
+    }
+    .is-admin.is-open { display: flex; }
+
+    /* Warenstreifen oben - schmal und immer sichtbar. */
     .is-res {
-      display: flex; gap: 6px; padding: 8px; flex-wrap: wrap;
+      position: fixed; top: 0; right: 0; z-index: 2;
+      display: flex; gap: 4px; padding: 6px;
     }
     .is-card {
-      display: flex; align-items: center; gap: 6px;
-      padding: 6px 10px; min-width: 108px;
+      display: flex; align-items: center; gap: 4px;
+      padding: 4px 8px; border-radius: 6px;
       background: rgba(12,18,24,0.86);
-      border: 1px solid rgba(255,255,255,0.10); border-radius: 6px;
+      border: 1px solid rgba(255,255,255,0.10);
       backdrop-filter: blur(6px); cursor: default;
     }
-    .is-card i {
-      width: 11px; height: 11px; border-radius: 2px; flex: 0 0 auto;
-      box-shadow: inset 0 0 0 1px rgba(0,0,0,0.45);
+    .is-mark {
+      width: 16px; height: 16px; border-radius: 2px; flex: 0 0 auto;
+      image-rendering: pixelated; object-fit: contain;
     }
-    .is-card-name { color: #93a1af; }
-    .is-card-n {
-      margin-left: auto; font-size: 15px; font-weight: 700; color: #f0f4f8;
-      font-variant-numeric: tabular-nums;
-    }
+    i.is-mark { box-shadow: inset 0 0 0 1px rgba(0,0,0,0.45); }
+    .is-card-n { font-size: 14px; font-weight: 700; color: #f0f4f8;
+                 font-variant-numeric: tabular-nums; }
     .is-card-sub { color: #6f8497; font-size: 11px; }
 
     .is-status {
-      position: fixed; left: 8px; bottom: 8px; min-width: 300px;
-      padding: 8px 10px; background: rgba(12,18,24,0.82);
+      position: fixed; left: 8px; top: 8px; z-index: 2;
+      padding: 8px 10px; min-width: 260px;
+      background: rgba(12,18,24,0.82);
       border: 1px solid rgba(255,255,255,0.08); border-radius: 6px;
-      backdrop-filter: blur(6px); pointer-events: none; z-index: 2;
+      backdrop-filter: blur(6px); pointer-events: none;
     }
     .is-row { display: flex; gap: 12px; justify-content: space-between; }
     .is-row span:first-child { color: #7f8c99; }
     .is-hash { color: #7fd1a5; }
 
-    /* Auf Touchgeraeten groessere Ziele: 44 px ist die uebliche
-       Mindestgroesse, darunter trifft man mit dem Finger unzuverlaessig. */
-    .is-admin { display: contents; }
-    .is-more { display: none; }
-
-    @media (pointer: coarse) {
-      .is-btn { padding: 10px 12px; min-height: 44px; }
-      .is-card { padding: 8px 10px; }
-    }
-
+    @media (pointer: coarse) { .is-btn { min-height: 46px; } }
     @media (max-width: 720px) {
-      /* Nur das Detailfeld schrumpft - die Warenanzeige bleibt. */
-      .is-status { min-width: 0; right: 8px; }
-      .is-bar { gap: 4px; padding: 6px 6px 0; }
-      .is-res { padding: 6px; gap: 4px; }
-      /* Kosten sind auf schmalen Schirmen wichtiger als die Tastenziffer. */
-      .is-btn b { display: none; }
-      .is-btn { padding: 8px 9px; }
-      /* Der Warenname steht schon als Farbe daneben - auf dem Handy
-         zaehlt, dass alle vier Waren in eine Zeile passen. */
-      .is-card-name { display: none; }
-      .is-card { min-width: 0; padding: 6px 8px; }
-      .is-card-n { margin-left: 2px; }
-      /* Verwaltung erst auf Tippen ausklappen. */
-      .is-more { display: inline-block; }
-      .is-admin { display: none; width: 100%; gap: 4px; }
-      .is-admin.is-open { display: flex; flex-wrap: wrap; }
+      .is-btn { padding: 9px 10px; }
+      .is-tile { width: 88px; }
+      .is-tile img { height: 38px; }
+      .is-status { display: none; }
     }
   `;
   document.head.appendChild(css);

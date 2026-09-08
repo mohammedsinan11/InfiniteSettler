@@ -138,6 +138,10 @@ async function boot(): Promise<void> {
   }
   gameAssets = await assetsPromise;
   renderer.setAssets(gameAssets);
+  // Das HUD nimmt seine Icons aus denselben Sprites - der Bauknopf zeigt
+  // damit genau das Gebaeude, das danach auf der Karte steht.
+  hud.setAssets(gameAssets);
+  hud.setMode(input.mode);
   requestAnimationFrame(frame);
 }
 

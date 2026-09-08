@@ -11,6 +11,7 @@ import { BuildingType } from '../sim/types';
 
 export type TerrainSprite = keyof typeof manifest.terrain;
 export type ResourceSprite = keyof typeof manifest.resources;
+export type GoodSprite = keyof typeof manifest.goods;
 export type CarrierDirection = keyof typeof manifest.carrier;
 
 export interface GameAssets {
@@ -18,6 +19,8 @@ export interface GameAssets {
   buildings: Record<number, HTMLImageElement[]>;
   trees: HTMLImageElement[];
   resources: Record<ResourceSprite, HTMLImageElement[]>;
+  /** Warensymbole fuer die Anzeige - nicht jede Ware hat eines. */
+  goods: Record<GoodSprite, HTMLImageElement[]>;
   carrier: Record<CarrierDirection, HTMLImageElement | null>;
   loaded: number;
   missing: number;
@@ -57,7 +60,7 @@ async function loadGroup(paths: readonly string[]): Promise<HTMLImageElement[]> 
 }
 
 export async function loadGameAssets(): Promise<GameAssets> {
-  const [terrainEntries, buildingEntries, treeImages, resourceEntries, carrierEntries] =
+  const [terrainEntries, buildingEntries, treeImages, resourceEntries, goodEntries, carrierEntries] =
     await Promise.all([
       Promise.all(
         Object.entries(manifest.terrain).map(async ([name, paths]) =>
@@ -70,6 +73,10 @@ export async function loadGameAssets(): Promise<GameAssets> {
       loadGroup(manifest.trees),
       Promise.all(
         Object.entries(manifest.resources).map(async ([name, paths]) =>
+          [name, await loadGroup(paths)] as const),
+      ),
+      Promise.all(
+        Object.entries(manifest.goods).map(async ([name, paths]) =>
           [name, await loadGroup(paths)] as const),
       ),
       Promise.all(
@@ -88,6 +95,7 @@ export async function loadGameAssets(): Promise<GameAssets> {
     [BuildingType.Quarry]: namedBuildings.quarry ?? [],
   };
   const resources = Object.fromEntries(resourceEntries) as GameAssets['resources'];
+  const goods = Object.fromEntries(goodEntries) as GameAssets['goods'];
   const carrier = Object.fromEntries(carrierEntries) as GameAssets['carrier'];
 
   const all = [
@@ -95,6 +103,7 @@ export async function loadGameAssets(): Promise<GameAssets> {
     ...Object.values(buildings).flat(),
     ...treeImages,
     ...Object.values(resources).flat(),
+    ...Object.values(goods).flat(),
     ...Object.values(carrier),
   ];
   const loaded = all.filter((image) => image !== null).length;
@@ -103,6 +112,7 @@ export async function loadGameAssets(): Promise<GameAssets> {
     Object.values(manifest.buildings).reduce((n, paths) => n + paths.length, 0) +
     manifest.trees.length +
     Object.values(manifest.resources).reduce((n, paths) => n + paths.length, 0) +
+    Object.values(manifest.goods).reduce((n, paths) => n + paths.length, 0) +
     Object.keys(manifest.carrier).length;
 
   return {
@@ -110,6 +120,7 @@ export async function loadGameAssets(): Promise<GameAssets> {
     buildings,
     trees: treeImages,
     resources,
+    goods,
     carrier,
     loaded,
     missing: expected - loaded,
@@ -131,6 +142,7 @@ export function emptyGameAssets(): GameAssets {
     },
     trees: [],
     resources: { stone: [], mountain: [] },
+    goods: { wood: [], plank: [], stone: [] },
     carrier: { down: null, left: null, right: null, up: null },
     loaded: 0,
     missing: 0,
