@@ -20,6 +20,7 @@ import {
   type Building,
   type BuildingType,
   type Carrier,
+  type Ship,
 } from './types';
 
 export interface WorldState {
@@ -33,6 +34,7 @@ export interface WorldState {
   /** Tile-Key -> Gebaeude-Id. Reiner Index, aus buildings ableitbar. */
   buildingAt: Map<string, number>;
   carriers: Map<number, Carrier>;
+  ships: Map<number, Ship>;
 }
 
 export interface World {
@@ -59,6 +61,7 @@ export function createWorld(seed: number): World {
       buildings: new Map(),
       buildingAt: new Map(),
       carriers: new Map(),
+      ships: new Map(),
     },
     chunks: new ChunkStore(seed | 0),
     rng: new Rng(seed | 0),
@@ -108,6 +111,16 @@ export function isWalkable(world: World, x: number, y: number): boolean {
   const key = tileKey(x, y);
   return world.state.roads.has(key) || world.state.buildingAt.has(key);
 }
+
+/**
+ * Befahrbar fuer Schiffe.
+ *
+ * Reines Wasser - Fluesse eingeschlossen, denn die sind im Terrain
+ * ebenfalls Wasser. Damit kann ein Schiff einen Fluss hinauffahren, wenn
+ * er breit genug ist.
+ */
+export const isSailable = (world: World, x: number, y: number): boolean =>
+  getTile(world, x, y) === Tile.Water;
 
 export function canPlaceOn(world: World, x: number, y: number): boolean {
   if (world.state.buildingAt.has(tileKey(x, y))) return false;

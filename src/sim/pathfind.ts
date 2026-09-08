@@ -82,9 +82,16 @@ export function findPath(
   sy: number,
   tx: number,
   ty: number,
+  /**
+   * Was als begehbar gilt. Standard sind Strassen und Gebaeude; Schiffe
+   * reichen stattdessen eine Wasserpruefung herein. Dadurch teilen sich
+   * Land- und Seewege dieselbe Wegfindung - nur die Frage "darf ich hier
+   * lang" unterscheidet sich.
+   */
+  passable: (world: World, x: number, y: number) => boolean = isWalkable,
 ): number[] | null {
   if (sx === tx && sy === ty) return [sx, sy];
-  if (!isWalkable(world, sx, sy) || !isWalkable(world, tx, ty)) return null;
+  if (!passable(world, sx, sy) || !passable(world, tx, ty)) return null;
 
   const startKey = tileKey(sx, sy);
   const goalKey = tileKey(tx, ty);
@@ -114,7 +121,7 @@ export function findPath(
       const ny = cur.y + dy;
       const nKey = tileKey(nx, ny);
       if (closed.has(nKey)) continue;
-      if (!isWalkable(world, nx, ny)) continue;
+      if (!passable(world, nx, ny)) continue;
 
       const ng = g + 1;
       const known = gScore.get(nKey);

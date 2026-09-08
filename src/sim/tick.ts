@@ -7,7 +7,13 @@
  */
 
 import { applyCommand, type Command } from './commands';
-import { assignJobs, stepCarriers, stepProduction } from './economy';
+import {
+  assignJobs,
+  assignShipJobs,
+  stepCarriers,
+  stepProduction,
+  stepShips,
+} from './economy';
 import type { World } from './state';
 
 export const TICK_HZ = 20;
@@ -19,6 +25,8 @@ export function step(world: World, commands: readonly Command[] = []): void {
   stepProduction(world);
   assignJobs(world);
   stepCarriers(world);
+  assignShipJobs(world);
+  stepShips(world);
   world.state.tick++;
 }
 

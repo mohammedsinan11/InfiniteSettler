@@ -176,5 +176,11 @@
     "left": "units/worker_02.png",
     "right": "units/worker_03.png",
     "up": "units/worker_07.png"
+  },
+  "ship": {
+    "up": "ships/trade_up.png",
+    "down": "ships/trade_down.png",
+    "left": "ships/trade_left.png",
+    "right": "ships/trade_right.png"
   }
 }

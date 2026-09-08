@@ -187,7 +187,9 @@ export const BUILDING_SPECS: Record<BuildingType, BuildingSpec> = {
     harvestConsumes: false,
     footprint: 2,
     placement: Placement.Coast,
-    isSink: false,
+    // Der Hafen ist zugleich Umschlagplatz: Traeger liefern dort ab und
+    // holen dort, Schiffe gleichen die Bestaende zwischen den Haefen aus.
+    isSink: true,
   },
 };
 
@@ -231,3 +233,35 @@ export interface Carrier {
 
 /** Traegergeschwindigkeit in Fixed-Point-Tiles pro Tick (1/8 Tile). */
 export const CARRIER_SPEED = 1 << 13;
+
+/**
+ * Ein Schiff.
+ *
+ * Baugleich mit einem Traeger, nur faehrt es auf Wasser statt auf
+ * Strassen und pendelt zwischen zwei Haefen. Deshalb dieselben Felder -
+ * Bewegung und Wegabarbeitung teilen sich den Code.
+ */
+export interface Ship {
+  id: number;
+  x: Fixed;
+  y: Fixed;
+  path: number[];
+  pathIdx: number;
+  state: CarrierState;
+  carrying: Good | -1;
+  jobGood: Good | -1;
+  jobFrom: number;
+  jobTo: number;
+  /** Heimathafen - dorthin kehrt es ohne Auftrag zurueck. */
+  home: number;
+}
+
+/** Schiffe sind schneller als Traeger: freie Fahrt statt Trampelpfad. */
+export const SHIP_SPEED = 1 << 14;
+/**
+ * Ab welchem Bestandsunterschied ein Schiff faehrt.
+ *
+ * Ohne Schwelle pendelten Schiffe endlos wegen eines einzigen Stuecks
+ * zwischen zwei Haefen hin und her.
+ */
+export const SHIP_MIN_GAP = 3;

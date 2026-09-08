@@ -8,6 +8,7 @@
  */
 
 import { NEIGHBORS, tileKey } from './coords';
+import { dockTile } from './economy';
 import { FP_ONE } from './fixed';
 import {
   buildingIdAt,
@@ -105,6 +106,27 @@ function doBuild(
     // Chunk dafuer neu aufbauen.
     markRoadDirty(world, tx, ty);
   });
+
+  if (bt === BuildingType.Harbor) {
+    // Jeder Hafen bringt ein Schiff mit, das an seinem Anleger startet.
+    const dock = dockTile(world, building);
+    if (dock) {
+      const shipId = s.nextId++;
+      s.ships.set(shipId, {
+        id: shipId,
+        x: (dock[0] * FP_ONE) | 0,
+        y: (dock[1] * FP_ONE) | 0,
+        path: [],
+        pathIdx: 0,
+        state: CarrierState.Idle,
+        carrying: -1,
+        jobGood: -1,
+        jobFrom: 0,
+        jobTo: 0,
+        home: id,
+      });
+    }
+  }
 
   if (bt === BuildingType.Storehouse) {
     for (let i = 0; i < CARRIERS_PER_STOREHOUSE; i++) {
@@ -239,6 +261,8 @@ function doDemolish(world: World, x: number, y: number): boolean {
   if (id !== undefined) {
     const b = s.buildings.get(id);
     s.buildings.delete(id);
+    // Schiffe eines abgerissenen Hafens verschwinden mit ihm.
+    for (const [sid, sh] of [...s.ships]) if (sh.home === id) s.ships.delete(sid);
     // Ueber die gespeicherte Ankerposition freigeben, nicht ueber die
     // angeklickte Kachel - sonst blieben die uebrigen Felder belegt.
     if (b) {

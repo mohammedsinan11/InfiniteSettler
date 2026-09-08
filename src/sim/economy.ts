@@ -13,11 +13,15 @@
 
 import { FP_ONE } from './fixed';
 import { findPath } from './pathfind';
-import { getTile, setTile, type World } from './state';
+import { getTile, isSailable, setTile, type World } from './state';
 import { Tile } from './terrain';
 import {
   BUILDING_SPECS,
+  BuildingType,
   CARRIER_SPEED,
+  SHIP_MIN_GAP,
+  SHIP_SPEED,
+  type Ship,
   CarrierState,
   GOOD_COUNT,
   type Building,
@@ -66,7 +70,10 @@ export function stepProduction(world: World): void {
       // Holzfaellers wird zu Gras, das Wasser des Hafens bleibt Wasser.
       if (spec.harvestConsumes) setTile(world, source[0], source[1], Tile.Grass);
     }
-    b.output[spec.produces]++;
+    // Ein Umschlagplatz legt sein Erzeugnis gleich in den Bestand: dort
+    // greifen Traeger und Schiffe darauf zu, im Ausgangspuffer nicht.
+    if (spec.isSink) b.input[spec.produces]++;
+    else b.output[spec.produces]++;
     b.progress = -1;
   }
 }
@@ -144,6 +151,15 @@ export function assignJobs(world: World): void {
         for (const tid of buildingIds) {
           if (tid === fid) continue;
           const to = buildings.get(tid) as Building;
+          // Kein Landtransport zwischen zwei Umschlagplaetzen.
+          //
+          // Lager und Haefen nehmen beide alles an UND geben alles ab -
+          // ohne diese Regel schaufeln Traeger dieselbe Ware endlos
+          // zwischen ihnen hin und her, weil jeder vom anderen Bedarf
+          // sieht. Ware zwischen Umschlagplaetzen bewegen Schiffe.
+          if (BUILDING_SPECS[from.type].isSink && BUILDING_SPECS[to.type].isSink) {
+            continue;
+          }
           if (demandFor(to, good) <= 0) continue;
 
           // Kosten: Weg zum Erzeuger plus Weg zum Verbraucher (Manhattan-Schaetzung).
@@ -274,8 +290,8 @@ function abortJob(c: Carrier): void {
  * Weil Pfade achsenparallel sind, ist die Manhattan-Distanz zum naechsten
  * Wegpunkt gleich der tatsaechlichen - es braucht keine Wurzel.
  */
-function advance(c: Carrier): boolean {
-  let budget = CARRIER_SPEED;
+function advance(c: Carrier | Ship, speed: number = CARRIER_SPEED): boolean {
+  let budget = speed;
   const points = c.path.length >> 1;
 
   while (budget > 0) {
@@ -309,4 +325,172 @@ function advance(c: Carrier): boolean {
   }
 
   return c.pathIdx >= points;
+}
+
+// --- Seeverkehr --------------------------------------------------------
+
+/**
+ * Anlegestelle eines Hafens: die naechstgelegene Wasserkachel.
+ *
+ * Feste Scanreihenfolge, damit dieselbe Kachel immer dieselbe bleibt -
+ * ein wechselnder Anleger liesse Schiffe zwischen zwei Feldern zittern.
+ */
+export function dockTile(world: World, harbor: Building): [number, number] | null {
+  const n = BUILDING_SPECS[harbor.type].footprint;
+  for (let r = 1; r <= 3; r++) {
+    for (let dy = -r; dy < n + r; dy++) {
+      for (let dx = -r; dx < n + r; dx++) {
+        const x = harbor.x + dx;
+        const y = harbor.y + dy;
+        if (getTile(world, x, y) !== Tile.Water) continue;
+        return [x, y];
+      }
+    }
+  }
+  return null;
+}
+
+const harborIds = (world: World): number[] =>
+  sortedIds(world.state.buildings).filter(
+    (id) => (world.state.buildings.get(id) as Building).type === BuildingType.Harbor,
+  );
+
+/**
+ * Vergibt Schiffsauftraege.
+ *
+ * Regel: ein Schiff faehrt, wenn ein Hafen von einer Ware deutlich mehr
+ * hat als ein anderer. Das gleicht die Bestaende zwischen den Haefen aus,
+ * ohne dass irgendwo ein globales Handelsnetz berechnet werden muesste -
+ * jede Fahrt entscheidet sich allein aus zwei Lagerstaenden.
+ *
+ * Die Schwelle verhindert, dass Schiffe wegen eines einzigen Stuecks
+ * endlos pendeln.
+ */
+export function assignShipJobs(world: World): void {
+  const ships = world.state.ships;
+  if (ships.size === 0) return;
+  const buildings = world.state.buildings;
+  const harbors = harborIds(world);
+  if (harbors.length < 2) return;
+
+  for (const sid of sortedIds(ships)) {
+    const sh = ships.get(sid) as Ship;
+    if (sh.state !== CarrierState.Idle) continue;
+
+    let bestFrom: Building | null = null;
+    let bestTo: Building | null = null;
+    let bestGood: Good = 0 as Good;
+    let bestGap = SHIP_MIN_GAP - 1;
+
+    for (const fid of harbors) {
+      const from = buildings.get(fid) as Building;
+      for (const tid of harbors) {
+        if (tid === fid) continue;
+        const to = buildings.get(tid) as Building;
+        for (let g = 0; g < GOOD_COUNT; g++) {
+          const good = g as Good;
+          // Unterwegs befindliche Ware auf beiden Seiten mitzaehlen, sonst
+          // schicken mehrere Schiffe dieselbe Fracht.
+          const have = from.input[good] - from.reserved[good];
+          const gap = have - (to.input[good] + to.incoming[good]);
+          if (gap <= bestGap) continue;
+          bestGap = gap;
+          bestFrom = from;
+          bestTo = to;
+          bestGood = good;
+        }
+      }
+    }
+
+    if (bestFrom === null || bestTo === null) continue;
+
+    const dockA = dockTile(world, bestFrom);
+    const dockB = dockTile(world, bestTo);
+    if (!dockA || !dockB) continue;
+
+    const toDock = findPath(
+      world,
+      Math.round(sh.x / FP_ONE),
+      Math.round(sh.y / FP_ONE),
+      dockA[0],
+      dockA[1],
+      isSailable,
+    );
+    if (toDock === null) continue;
+    // Auch die zweite Etappe muss befahrbar sein - sonst legt das Schiff
+    // ab und stellt erst am Ziel fest, dass es nicht hinkommt.
+    if (findPath(world, dockA[0], dockA[1], dockB[0], dockB[1], isSailable) === null) {
+      continue;
+    }
+
+    bestFrom.reserved[bestGood]++;
+    bestTo.incoming[bestGood]++;
+    sh.state = CarrierState.ToSource;
+    sh.jobGood = bestGood;
+    sh.jobFrom = bestFrom.id;
+    sh.jobTo = bestTo.id;
+    sh.path = toDock;
+    sh.pathIdx = 0;
+  }
+}
+
+/** Bewegt die Schiffe und wickelt Aufnahme und Abgabe ab. */
+export function stepShips(world: World): void {
+  const ships = world.state.ships;
+  const buildings = world.state.buildings;
+
+  for (const id of sortedIds(ships)) {
+    const sh = ships.get(id) as Ship;
+    if (sh.state === CarrierState.Idle) continue;
+    if (!advance(sh, SHIP_SPEED)) continue;
+
+    const from = buildings.get(sh.jobFrom);
+    const to = buildings.get(sh.jobTo);
+    const good = sh.jobGood as Good;
+
+    if (sh.state === CarrierState.ToSource) {
+      if (!from || !to || from.input[good] < 1) {
+        if (from) from.reserved[good] = Math.max(0, from.reserved[good] - 1);
+        if (to) to.incoming[good] = Math.max(0, to.incoming[good] - 1);
+        abortShip(sh);
+        continue;
+      }
+      from.input[good]--;
+      from.reserved[good] = Math.max(0, from.reserved[good] - 1);
+      sh.carrying = good;
+
+      const dockB = dockTile(world, to);
+      const path = dockB
+        ? findPath(world, Math.round(sh.x / FP_ONE), Math.round(sh.y / FP_ONE),
+                   dockB[0], dockB[1], isSailable)
+        : null;
+      if (path === null) {
+        from.input[good]++;
+        to.incoming[good] = Math.max(0, to.incoming[good] - 1);
+        sh.carrying = -1;
+        abortShip(sh);
+        continue;
+      }
+      sh.state = CarrierState.ToDest;
+      sh.path = path;
+      sh.pathIdx = 0;
+      continue;
+    }
+
+    if (to) {
+      to.input[good]++;
+      to.incoming[good] = Math.max(0, to.incoming[good] - 1);
+    }
+    sh.carrying = -1;
+    abortShip(sh);
+  }
+}
+
+function abortShip(sh: Ship): void {
+  sh.state = CarrierState.Idle;
+  sh.jobGood = -1;
+  sh.jobFrom = 0;
+  sh.jobTo = 0;
+  sh.path = [];
+  sh.pathIdx = 0;
 }

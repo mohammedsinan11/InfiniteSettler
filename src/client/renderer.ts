@@ -17,7 +17,7 @@ import { hash2i } from '../sim/hash';
 import { FP_ONE } from '../sim/fixed';
 import { buildingIdAt, hasRoad, type World } from '../sim/state';
 import { Tile, waterDepth } from '../sim/terrain';
-import { BUILDING_SPECS, GOOD_COUNT, type Building, type Carrier } from '../sim/types';
+import { BUILDING_SPECS, GOOD_COUNT, type Building, type Carrier, type Ship } from '../sim/types';
 import type { CarrierDirection, GameAssets, TerrainSprite } from './assets';
 import type { Camera } from './camera';
 import {
@@ -119,6 +119,7 @@ interface Ghost {
 
 type SceneObject =
   | { kind: 'cliff'; x: number; y: number; image: HTMLImageElement }
+  | { kind: 'ship'; x: number; y: number; ship: Ship }
   | { kind: 'scatter'; x: number; y: number; image: HTMLImageElement }
   | { kind: 'tree'; x: number; y: number; image: HTMLImageElement }
   | { kind: 'resource'; x: number; y: number; image: HTMLImageElement }
@@ -245,6 +246,11 @@ export class Renderer {
   /** Vor jedem Sim-Tick aufrufen: aktuelle Positionen werden zum Startpunkt. */
   snapshotCarriers(): void {
     const carriers = this.world.state.carriers;
+    for (const sh of this.world.state.ships.values()) {
+      const g = this.ghosts.get(sh.id);
+      if (g) { g.px = sh.x / FP_ONE; g.py = sh.y / FP_ONE; }
+      else this.ghosts.set(sh.id, { px: sh.x / FP_ONE, py: sh.y / FP_ONE });
+    }
     for (const c of carriers.values()) {
       const g = this.ghosts.get(c.id);
       if (g) {
@@ -255,7 +261,7 @@ export class Renderer {
       }
     }
     for (const id of this.ghosts.keys()) {
-      if (!carriers.has(id)) this.ghosts.delete(id);
+      if (!carriers.has(id) && !this.world.state.ships.has(id)) this.ghosts.delete(id);
     }
   }
 
@@ -623,6 +629,19 @@ export class Renderer {
       objects.push({ kind: 'building', x: b.x, y: b.y, building: b });
     }
 
+    for (const sh of this.world.state.ships.values()) {
+      const shx = sh.x / FP_ONE;
+      const shy = sh.y / FP_ONE;
+      if (shx < v.x0 - 2 || shx > v.x1 + 2 || shy < v.y0 - 2 || shy > v.y1 + 2) continue;
+      const g = this.ghosts.get(sh.id);
+      objects.push({
+        kind: 'ship',
+        x: g ? g.px + (shx - g.px) * alpha : shx,
+        y: g ? g.py + (shy - g.py) * alpha : shy,
+        ship: sh,
+      });
+    }
+
     for (const c of this.world.state.carriers.values()) {
       const cx = c.x / FP_ONE;
       const cy = c.y / FP_ONE;
@@ -671,6 +690,9 @@ export class Renderer {
           break;
         case 'building':
           this.drawBuilding(object.building);
+          break;
+        case 'ship':
+          this.drawShip(object.ship, object.x, object.y);
           break;
         case 'carrier':
           this.drawCarrier(object.carrier, object.x, object.y);
@@ -902,6 +924,51 @@ export class Renderer {
     }
   }
 
+  private drawShip(sh: Ship, x: number, y: number): void {
+    const { ctx, cam } = this;
+    const z = cam.zoom;
+    const image = this.assets.ship[this.headingOf(sh.path, sh.pathIdx, x, y)];
+    if (image) {
+      // Schiffe liegen IM Wasser, nicht darauf: Mittelpunkt als Anker
+      // statt der Unterkante wie bei Gebaeuden und Figuren.
+      const h = z * 1.9;
+      const w = h * (image.naturalWidth / image.naturalHeight);
+      ctx.drawImage(
+        this.scaledSprite(image, h),
+        cam.worldToScreenX(x + 0.5) - w / 2,
+        cam.worldToScreenY(y + 0.5) - h / 2,
+        w, h,
+      );
+    } else {
+      ctx.fillStyle = '#6b4a2a';
+      ctx.fillRect(cam.worldToScreenX(x) + z * 0.2, cam.worldToScreenY(y) + z * 0.3,
+                   z * 0.6, z * 0.4);
+    }
+    if (sh.carrying >= 0 && z >= 8) {
+      ctx.fillStyle = GOOD_COLOR[sh.carrying as keyof typeof GOOD_COLOR];
+      ctx.beginPath();
+      ctx.arc(cam.worldToScreenX(x + 0.5), cam.worldToScreenY(y) - z * 0.35,
+              Math.max(2, z * 0.14), 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  /** Blickrichtung aus dem naechsten Wegpunkt. */
+  private headingOf(
+    path: number[],
+    idx: number,
+    x: number,
+    y: number,
+  ): CarrierDirection {
+    const tx = path[idx * 2];
+    const ty = path[idx * 2 + 1];
+    if (tx === undefined || ty === undefined) return 'down';
+    const dx = tx - x;
+    const dy = ty - y;
+    if (Math.abs(dx) > Math.abs(dy)) return dx < 0 ? 'left' : 'right';
+    return dy < 0 ? 'up' : 'down';
+  }
+
   private drawCarrier(c: Carrier, x: number, y: number): void {
     const { ctx, cam } = this;
     const z = cam.zoom;
@@ -999,6 +1066,7 @@ const sceneOrder = (kind: SceneObject['kind']): number => {
   switch (kind) {
     // Uferkanten zuerst: sie liegen im Gelaende, alles andere steht darauf.
     case 'cliff': return -1;
+    case 'ship': return 1;
     case 'scatter': return 0;
     case 'tree': return 0;
     case 'resource': return 1;

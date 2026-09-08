@@ -110,8 +110,9 @@ describe('Hafen', () => {
     applyCommand(world, { t: 'build', bt: BuildingType.Harbor, x: 8, y: 0 });
     const harbor = [...world.state.buildings.values()][0];
     for (let i = 0; i < 2000; i++) step(world);
-    // Ohne Abtransport laeuft der Puffer voll und bleibt voll.
-    expect(harbor.output[Good.Fish]).toBeGreaterThan(0);
+    // Der Hafen ist zugleich Umschlagplatz - sein Fang landet im Bestand,
+    // nicht im Ausgangspuffer.
+    expect(harbor.input[Good.Fish]).toBeGreaterThan(0);
   });
 });
 

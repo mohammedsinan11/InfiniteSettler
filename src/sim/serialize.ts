@@ -14,7 +14,7 @@ import { fnv1a, hex8 } from './hash';
 import { Rng } from './rng';
 import type { World, WorldState } from './state';
 import type { Tile } from './terrain';
-import { BUILDING_SPECS, GOOD_COUNT, type Building, type Carrier } from './types';
+import { BUILDING_SPECS, GOOD_COUNT, type Building, type Carrier, type Ship } from './types';
 
 /**
  * Version 2: Die Terraingenerierung wurde ueberarbeitet (Domain Warping,
@@ -35,6 +35,7 @@ export interface Snapshot {
   roads: string[];
   buildings: Building[];
   carriers: Carrier[];
+  ships: Ship[];
 }
 
 const byId = (a: { id: number }, b: { id: number }): number => a.id - b.id;
@@ -55,6 +56,7 @@ export function serialize(world: World): Snapshot {
       .map(cloneBuilding)
       .sort(byId),
     carriers: Array.from(s.carriers.values()).map(cloneCarrier).sort(byId),
+    ships: Array.from(s.ships.values()).map(cloneShip).sort(byId),
   };
 }
 
@@ -74,6 +76,7 @@ export function deserialize(snap: Snapshot): World {
     buildings: new Map(),
     buildingAt: new Map(),
     carriers: new Map(),
+    ships: new Map(),
   };
 
   for (const b of snap.buildings) {
@@ -93,6 +96,11 @@ export function deserialize(snap: Snapshot): World {
   for (const c of snap.carriers) {
     const copy = cloneCarrier(c);
     state.carriers.set(copy.id, copy);
+  }
+  // Aeltere Spielstaende kennen keine Schiffe.
+  for (const sh of snap.ships ?? []) {
+    const copy = cloneShip(sh);
+    state.ships.set(copy.id, copy);
   }
 
   const rng = new Rng(snap.seed | 0);
@@ -125,6 +133,20 @@ const cloneBuilding = (b: Building): Building => ({
   output: goods(b.output),
   reserved: goods(b.reserved),
   incoming: goods(b.incoming),
+});
+
+const cloneShip = (sh: Ship): Ship => ({
+  id: sh.id,
+  x: sh.x,
+  y: sh.y,
+  path: sh.path.slice(),
+  pathIdx: sh.pathIdx,
+  state: sh.state,
+  carrying: sh.carrying,
+  jobGood: sh.jobGood,
+  jobFrom: sh.jobFrom,
+  jobTo: sh.jobTo,
+  home: sh.home,
 });
 
 const cloneCarrier = (c: Carrier): Carrier => ({
