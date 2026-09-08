@@ -156,9 +156,13 @@ export function canPlaceBuilding(
 ): boolean {
   // JEDE Kachel der Grundflaeche muss frei und bebaubar sein - nicht nur
   // die Ankerkachel, sonst stuende das Gebaeude halb im Wasser.
+  //
+  // Strassen zaehlen dabei als belegt. Frueher wurden sie beim Bauen
+  // stillschweigend ueberschrieben; damit riss man sich beim Setzen eines
+  // Gebaeudes unbemerkt den eigenen Transportweg auf.
   let ok = true;
   forEachFootprint(type, x, y, (tx, ty) => {
-    if (!canPlaceOn(world, tx, ty)) ok = false;
+    if (!canPlaceOn(world, tx, ty) || hasRoad(world, tx, ty)) ok = false;
   });
   if (!ok) return false;
 

@@ -46,8 +46,15 @@ const TERRAIN_PX = 8;
 /** 96 Chunks entsprechen rund 96 MiB Canvas-Pixeln statt ueber 500 MiB. */
 const MAX_RENDER_CHUNKS = 96;
 const SCENERY_MIN_ZOOM = 7;
-/** Wie weit ein Sprite ueber seine Grundflaeche hinausragen darf. */
-const SPRITE_OVERHANG = 1.18;
+/**
+ * Wie weit ein Gebaeudesprite ueber seine Grundflaeche hinausragen darf.
+ *
+ * Deutlich groesser als 1, weil die Sprites rundherum ein gemaltes
+ * Bodenstueck und Beiwerk (Zaun, Baeume) mitbringen: das eigentliche
+ * Gebaeude nimmt nur den mittleren Teil des Bildes ein. Bei genau 1.0
+ * wirkte es winzig neben den Strassenkacheln.
+ */
+const SPRITE_OVERHANG = 1.5;
 const TREE_SEED = 0x4f2a19c3 | 0;
 const RESOURCE_SEED = 0x315ca77d | 0;
 /**
@@ -337,7 +344,7 @@ export class Renderer {
     g.imageSmoothingEnabled = false;
     for (let ly = 0; ly < CHUNK_SIZE; ly++) {
       for (let lx = 0; lx < CHUNK_SIZE; lx++) {
-        const blend = this.blendSprite(tiles, lx, ly);
+        const blend = this.blendSprite(tiles, lx, ly, ox, oy);
         const variants = blend
           ? this.assets.terrain[blend]
           : this.terrainImages(tiles[(ly << CHUNK_BITS) | lx] as Tile);
@@ -366,8 +373,24 @@ export class Renderer {
    * das Grafikpaket Kanten mitbringen -, nimmt der Grenze aber den harten
    * Farbsprung und laesst Waldraender bewachsen wirken.
    */
-  private blendSprite(tiles: Uint8Array, lx: number, ly: number): TerrainSprite | null {
+  private blendSprite(
+    tiles: Uint8Array,
+    lx: number,
+    ly: number,
+    ox: number,
+    oy: number,
+  ): TerrainSprite | null {
     if (tiles[(ly << CHUNK_BITS) | lx] !== Tile.Grass) return null;
+
+    // Gras direkt an einer Strasse wird zu getretenem Boden. Das laesst
+    // Wege in der Landschaft liegen, statt sie darauf zu kleben.
+    const roads = this.world.state.roads;
+    if (roads.size > 0) {
+      for (const [dx, dy] of NEIGHBORS) {
+        if (roads.has(tileKey(ox + lx + dx, oy + ly + dy))) return 'dirt';
+      }
+    }
+
     let forest = 0;
     let rocky = 0;
     for (const [dx, dy] of NEIGHBORS) {
@@ -397,40 +420,66 @@ export class Renderer {
 
   // --- Overlays --------------------------------------------------------
 
+  /**
+   * Strassen als durchgehendes Band.
+   *
+   * Vorher war jede Kachel ein volles Quadrat - eine Strasse las sich als
+   * Kette einzelner Platten statt als Weg. Jetzt wird die Flaeche zu den
+   * Seiten eingezogen, an denen KEIN Anschluss liegt, und reicht dort bis
+   * an den Rand, wo es weitergeht. Ein gerader Weg wird damit zu einem
+   * schmalen Band, eine Kreuzung bleibt breit, und ein Ende laeuft aus.
+   *
+   * Gebaeude zaehlen als Anschluss - sonst klaffte vor jeder Tuer eine Luecke.
+   */
   private drawRoads(): void {
     const { ctx, cam } = this;
     const z = cam.zoom;
     const v = cam.visibleTiles();
     const sprites = this.assets.terrain.road;
-    for (const key of this.world.state.roads) {
+    const state = this.world.state;
+    const inset = Math.max(0.5, z * 0.22);
+
+    const connects = (x: number, y: number): boolean => {
+      const key = tileKey(x, y);
+      return state.roads.has(key) || state.buildingAt.has(key);
+    };
+
+    for (const key of state.roads) {
       const [x, y] = parseKey(key);
       if (x < v.x0 || x > v.x1 || y < v.y0 || y > v.y1) continue;
-      const sx = cam.worldToScreenX(x);
-      const sy = cam.worldToScreenY(y);
+
+      const left = connects(x - 1, y) ? 0 : inset;
+      const right = connects(x + 1, y) ? 0 : inset;
+      const up = connects(x, y - 1) ? 0 : inset;
+      const down = connects(x, y + 1) ? 0 : inset;
+
+      const sx = cam.worldToScreenX(x) + left;
+      const sy = cam.worldToScreenY(y) + up;
+      const w = z - left - right;
+      const h = z - up - down;
+
       ctx.fillStyle = ROAD_COLOR;
-      ctx.fillRect(sx, sy, z, z);
-      if (sprites.length > 0 && z >= 4) {
-        const image = sprites[
-          (hash2i(this.textureSeed ^ 0x218bc1, x, y) >>> 0) % sprites.length
-        ];
-        ctx.globalAlpha = 0.76;
-        const crop = Math.max(
-          1,
-          Math.round(Math.min(image.naturalWidth, image.naturalHeight) * 0.08),
-        );
-        ctx.drawImage(
-          image,
-          crop,
-          crop,
-          image.naturalWidth - crop * 2,
-          image.naturalHeight - crop * 2,
-          sx,
-          sy,
-          z,
-          z,
-        );
-        ctx.globalAlpha = 1;
-      }
+      ctx.fillRect(sx, sy, w, h);
+      if (sprites.length === 0 || z < 4) continue;
+
+      const image = sprites[
+        (hash2i(this.textureSeed ^ 0x218bc1, x, y) >>> 0) % sprites.length
+      ];
+      ctx.globalAlpha = 0.76;
+      // Denselben Ausschnitt wie beim Terrain nehmen, sonst zeigt der
+      // gemalte Rahmen der Vorlage ein Gitter.
+      const crop = Math.max(
+        1,
+        Math.round(Math.min(image.naturalWidth, image.naturalHeight) * 0.08),
+      );
+      const src = {
+        x: crop + ((image.naturalWidth - crop * 2) * left) / z,
+        y: crop + ((image.naturalHeight - crop * 2) * up) / z,
+        w: ((image.naturalWidth - crop * 2) * w) / z,
+        h: ((image.naturalHeight - crop * 2) * h) / z,
+      };
+      ctx.drawImage(image, src.x, src.y, src.w, src.h, sx, sy, w, h);
+      ctx.globalAlpha = 1;
     }
   }
 

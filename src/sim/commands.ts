@@ -7,7 +7,7 @@
  * Schreibzugriffe aus dem Client wuerden diese Kette sofort brechen.
  */
 
-import { tileKey } from './coords';
+import { NEIGHBORS, tileKey } from './coords';
 import { FP_ONE } from './fixed';
 import {
   buildingIdAt,
@@ -97,11 +97,9 @@ function doBuild(
     building.input[Good.Stone] = STARTER_STONE;
   }
   s.buildings.set(id, building);
-  forEachFootprint(bt, x, y, (tx, ty) => {
-    s.buildingAt.set(tileKey(tx, ty), id);
-    // Ein Gebaeude ist selbst begehbar; die Strasse darunter waere sonst weg.
-    s.roads.delete(tileKey(tx, ty));
-  });
+  // Strassen unter der Flaeche gibt es nicht mehr - canPlaceBuilding
+  // laesst dort gar nicht erst bauen.
+  forEachFootprint(bt, x, y, (tx, ty) => s.buildingAt.set(tileKey(tx, ty), id));
 
   if (bt === BuildingType.Storehouse) {
     for (let i = 0; i < CARRIERS_PER_STOREHOUSE; i++) {
@@ -185,7 +183,22 @@ function doRoad(world: World, x: number, y: number): boolean {
   if (s.roads.has(key) || s.buildingAt.has(key)) return false;
   if (!isBuildable(getTile(world, x, y))) return false;
   s.roads.add(key);
+  markRoadDirty(world, x, y);
   return true;
+}
+
+/**
+ * Meldet die Umgebung einer Strassenaenderung als neu zu zeichnen.
+ *
+ * Der Renderer baut Chunks einmal und behaelt sie. Gras neben einer
+ * Strasse wird zu getretenem Boden - ohne diese Meldung bliebe der alte
+ * Chunk stehen und die Anpassung erschiene erst, wenn er zufaellig aus dem
+ * Cache faellt. Auch die vier Nachbarn, weil deren Boden ebenfalls kippt
+ * und sie in einem anderen Chunk liegen koennen.
+ */
+function markRoadDirty(world: World, x: number, y: number): void {
+  world.dirty.add(tileKey(x, y));
+  for (const [dx, dy] of NEIGHBORS) world.dirty.add(tileKey(x + dx, y + dy));
 }
 
 function doDemolish(world: World, x: number, y: number): boolean {
@@ -207,6 +220,7 @@ function doDemolish(world: World, x: number, y: number): boolean {
 
   if (s.roads.has(key)) {
     s.roads.delete(key);
+    markRoadDirty(world, x, y);
     return true;
   }
 

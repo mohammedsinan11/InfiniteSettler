@@ -23,9 +23,14 @@ Aufbauspiel im Stil von "Die Siedler".
 2. **Regelmäßiges Raster.** Alle Zellen exakt gleich groß, gleichmäßige
    Abstände, mindestens 10 Pixel sichtbarer Zwischenraum zwischen zwei
    Zellen. Kein Motiv berührt seinen Zellrand.
-3. **Ein Motiv pro Zelle.** Keine Gruppen, keine überlappenden Objekte
-   aus Nachbarzellen.
-4. **Einfarbiger dunkler Hintergrund**, durchgehend gleich
+3. **Ein Motiv pro Zelle**, und rundherum mindestens **8 Pixel freier
+   Rand** innerhalb der Zelle. Das Motiv darf den Zellrand nirgends
+   berühren — auch nicht mit Bodenplatte, Zaun, Beiwerk oder Schatten.
+   Genau daran krankt das erste Blatt: die Gebäude füllen ihre Zellen
+   randlos, weshalb im Spiel Pflasterflächen, Zäune und Wasserläufe
+   sichtbar abgeschnitten enden.
+4. **Keine überlappenden Objekte** aus Nachbarzellen.
+5. **Einfarbiger dunkler Hintergrund**, durchgehend gleich
    (dunkles Blaugrau, etwa #1b2430). Kein Verlauf, kein Muster, keine
    Rahmen oder Kästen um die Zellen.
 

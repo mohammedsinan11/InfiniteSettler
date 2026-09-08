@@ -296,8 +296,29 @@ export class Input {
     const y = Math.floor(this.cam.screenToWorldY(clientY - rect.top));
     const key = x + ',' + y;
     if (key === this.lastPainted) return;
-    this.lastPainted = key;
 
+    // Zwischen dem zuletzt bemalten und diesem Feld auffuellen.
+    //
+    // pointermove feuert nicht fuer jedes ueberstrichene Feld: bei zuegigem
+    // Ziehen springt der Zeiger mehrere Kacheln weiter und die Strasse
+    // bekam Luecken. Wie stark, hing von Ziehrichtung und Tempo ab - genau
+    // deshalb wirkte manche Richtung "unsauber".
+    if (this.lastPainted !== '') {
+      const [px, py] = this.lastPainted.split(',').map(Number);
+      const steps = Math.max(Math.abs(x - px), Math.abs(y - py));
+      for (let i = 1; i < steps; i++) {
+        this.emitPaint(
+          px + Math.round(((x - px) * i) / steps),
+          py + Math.round(((y - py) * i) / steps),
+        );
+      }
+    }
+
+    this.lastPainted = key;
+    this.emitPaint(x, y);
+  }
+
+  private emitPaint(x: number, y: number): void {
     if (this.mode === Mode.Road) {
       this.queue.push({ t: 'road', x, y });
       return;

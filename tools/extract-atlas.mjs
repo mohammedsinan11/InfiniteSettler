@@ -367,6 +367,8 @@ const argOf = (flag, dflt) => {
 };
 const outRoot = argOf('--out', join(PACK, 'extracted'));
 const only = argOf('--only', null);
+/** Nur zum Ausprobieren: ueberschreibt den Einzug aller Kategorien. */
+const insetOverride = args.includes('--inset') ? Number(argOf('--inset', '0')) : null;
 
 const atlas = decodePng(readFileSync(ATLAS));
 console.log(`Atlas: ${atlas.width}x${atlas.height}\nZiel:  ${outRoot}\n`);
@@ -426,7 +428,7 @@ function emit(cell, cat, rowName, index) {
 for (const cat of CATEGORIES) {
   if (only && only !== cat.name) continue;
   const box = refine(cat.box, atlas);
-  const inset = cat.inset ?? 0;
+  const inset = insetOverride ?? cat.inset ?? 0;
 
   if (cat.mode === 'grid') {
     const cw = (box[2] - box[0]) / cat.cols;
