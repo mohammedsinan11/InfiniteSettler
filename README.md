@@ -1,6 +1,7 @@
 # InfiniteSettler
 
-Siedler-Klon auf einer prozedural erzeugten, praktisch unendlichen Karte.
+Siedler-Klon auf einer prozedural erzeugten, praktisch unendlichen Karte
+mit Kontinenten, Binnenseen, Gebirgszuegen und Wassertiefe.
 Laeuft als statische Seite; die Simulation ist deterministisch aufgebaut,
 damit spaeter Mehrspieler ueber Lockstep dazukommen kann.
 

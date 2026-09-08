@@ -122,7 +122,10 @@ async function boot(): Promise<void> {
       centerOnLand();
     }
   } catch (err) {
-    console.warn('Spielstand konnte nicht geladen werden:', err);
+    // Haeufigster Fall: Spielstand aus einer aelteren Terrainversion.
+    console.warn('Spielstand verworfen:', err);
+    await clearSnapshot().catch(() => undefined);
+    saveState = 'alter Spielstand verworfen';
     centerOnLand();
   }
   requestAnimationFrame(frame);

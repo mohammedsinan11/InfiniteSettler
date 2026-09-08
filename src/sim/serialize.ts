@@ -16,7 +16,14 @@ import type { World, WorldState } from './state';
 import type { Tile } from './terrain';
 import type { Building, Carrier } from './types';
 
-export const SNAPSHOT_VERSION = 1;
+/**
+ * Version 2: Die Terraingenerierung wurde ueberarbeitet (Domain Warping,
+ * getrennte Kontinent- und Detailfelder, Grat-Gebirge). Dieselben
+ * Koordinaten liefern damit anderes Terrain - ein alter Spielstand haette
+ * Gebaeude im Wasser und Holzfaeller ohne Wald. Deshalb wird er verworfen
+ * statt stillschweigend kaputt geladen.
+ */
+export const SNAPSHOT_VERSION = 2;
 
 export interface Snapshot {
   v: number;
@@ -53,7 +60,9 @@ export function serialize(world: World): Snapshot {
 
 export function deserialize(snap: Snapshot): World {
   if (snap.v !== SNAPSHOT_VERSION) {
-    throw new Error('Unbekannte Spielstandsversion: ' + snap.v);
+    throw new Error(
+      'Spielstand hat Version ' + snap.v + ', erwartet wird ' + SNAPSHOT_VERSION,
+    );
   }
 
   const state: WorldState = {

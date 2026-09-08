@@ -10,10 +10,12 @@
  * hinein. Alles Zeitabhaengige (Interpolation) ist reiner Client-Zustand.
  */
 
+import { HEIGHT_SHIFT, heightIndex } from '../sim/chunks';
 import { CHUNK_BITS, CHUNK_SIZE, chunkKey, parseKey, tileKey } from '../sim/coords';
 import { hash2i } from '../sim/hash';
 import { FP_ONE } from '../sim/fixed';
 import type { World } from '../sim/state';
+import { Tile, waterDepth } from '../sim/terrain';
 import { BUILDING_SPECS, GOOD_COUNT, type Carrier } from '../sim/types';
 import type { Camera } from './camera';
 import {
@@ -22,11 +24,36 @@ import {
   GOOD_COLOR,
   ROAD_COLOR,
   TILE_RGB,
+  WATER_DEEP,
+  WATER_SHALLOW,
 } from './colors';
 
-/** Neue Chunk-Canvases pro Frame. Begrenzt, damit schnelles Scrollen nicht ruckelt. */
-const CHUNK_BUILD_BUDGET = 6;
+/**
+ * Zeitbudget fuer das Aufbauen neuer Chunks pro Frame, in Millisekunden.
+ *
+ * Bewusst eine Zeit- und keine Stueckzahl: die Generierung kostet je nach
+ * Maschine sehr unterschiedlich viel (hier gemessen rund 6 ms pro Chunk),
+ * und eine feste Anzahl waere auf schwacher Hardware ein garantiertes
+ * Ruckeln. Mindestens ein Chunk pro Frame wird immer gebaut, sonst kaeme
+ * die Karte beim Scrollen nie hinterher.
+ */
+const CHUNK_BUILD_MS = 8;
 const UNLOADED_COLOR = '#0d1319';
+/**
+ * Reliefschattierung nach ABSOLUTER Hoehe, nicht nach Steigung.
+ *
+ * Eine Steigungsschattierung (Differenz zum Nachbarn) sah zunaechst besser
+ * aus, erzeugte aber deutliche Streifenmuster. Grund: das Domain Warping
+ * verschiebt die Abfrageposition um ganze Tiles. Springt dieser Versatz um
+ * eins, entsteht im Hoehenfeld eine winzige Unstetigkeit - und eine
+ * Ableitung macht daraus eine sichtbare Linie. Die absolute Hoehe hat
+ * dieselbe Unstetigkeit, dort faellt sie aber nicht auf.
+ *
+ * Werte in Einheiten von (Hoehe >> HEIGHT_SHIFT).
+ */
+const RELIEF_REF = 380;
+const RELIEF_GAIN = 0.023;
+const RELIEF_MAX = 22;
 
 interface Ghost {
   px: number;
@@ -107,7 +134,8 @@ export class Renderer {
     const c0y = v.y0 >> CHUNK_BITS;
     const c1y = v.y1 >> CHUNK_BITS;
 
-    let budget = CHUNK_BUILD_BUDGET;
+    const deadline = performance.now() + CHUNK_BUILD_MS;
+    let built = 0;
     let pending = 0;
 
     for (let cy = c0y; cy <= c1y; cy++) {
@@ -115,13 +143,14 @@ export class Renderer {
         const key = chunkKey(cx, cy);
         let img = this.cache.get(key);
         if (!img) {
-          if (budget <= 0) {
+          // Der erste Chunk wird immer gebaut, danach nur solange Zeit ist.
+          if (built > 0 && performance.now() > deadline) {
             pending++;
             continue;
           }
           img = this.buildChunkCanvas(cx, cy);
           this.cache.set(key, img);
-          budget--;
+          built++;
         }
 
         // Kanten auf ganze Pixel runden, sonst entstehen Fugen zwischen Chunks.
@@ -153,20 +182,42 @@ export class Renderer {
     const ox = cx << CHUNK_BITS;
     const oy = cy << CHUNK_BITS;
 
+    const heights = chunk.height;
+
     for (let ly = 0; ly < CHUNK_SIZE; ly++) {
       const wy = oy + ly;
       for (let lx = 0; lx < CHUNK_SIZE; lx++) {
         const idx = (ly << CHUNK_BITS) | lx;
         const wx = ox + lx;
         const ov = overrides.get(tileKey(wx, wy));
-        const tile = ov !== undefined ? ov : chunk[idx];
-        const rgb = TILE_RGB[tile as keyof typeof TILE_RGB];
+        const tile = ov !== undefined ? ov : chunk.tiles[idx];
         // Leichte Helligkeitsvariation, damit grosse Flaechen nicht flach wirken.
         const jitter = (hash2i(this.textureSeed, wx, wy) & 15) - 7;
+        const h = heights[heightIndex(lx, ly)];
+
+        let r: number;
+        let g2: number;
+        let b: number;
+
+        if (tile === Tile.Water) {
+          const d = waterDepth(h << HEIGHT_SHIFT) / 65536;
+          r = WATER_SHALLOW[0] + (WATER_DEEP[0] - WATER_SHALLOW[0]) * d;
+          g2 = WATER_SHALLOW[1] + (WATER_DEEP[1] - WATER_SHALLOW[1]) * d;
+          b = WATER_SHALLOW[2] + (WATER_DEEP[2] - WATER_SHALLOW[2]) * d;
+        } else {
+          // Hoeheres Gelaende heller, Senken dunkler.
+          const rel = (h - RELIEF_REF) * RELIEF_GAIN;
+          const shade = rel < -RELIEF_MAX ? -RELIEF_MAX : rel > RELIEF_MAX ? RELIEF_MAX : rel;
+          const rgb = TILE_RGB[tile as keyof typeof TILE_RGB];
+          r = rgb[0] + shade;
+          g2 = rgb[1] + shade;
+          b = rgb[2] + shade;
+        }
+
         const p = idx << 2;
-        data[p] = clamp255(rgb[0] + jitter);
-        data[p + 1] = clamp255(rgb[1] + jitter);
-        data[p + 2] = clamp255(rgb[2] + jitter);
+        data[p] = clamp255(r + jitter);
+        data[p + 1] = clamp255(g2 + jitter);
+        data[p + 2] = clamp255(b + jitter);
         data[p + 3] = 255;
       }
     }

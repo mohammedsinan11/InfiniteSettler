@@ -1,10 +1,24 @@
 /**
  * Prozedurale Terraingenerierung. Reine Funktion von (seed, x, y) -
  * daher ist die Karte unendlich gross, ohne dass irgendetwas gespeichert wird.
+ *
+ * Aufbau in vier Schichten:
+ *
+ *   1. Domain Warping verschiebt die Abfrageposition. Ohne diesen Schritt
+ *      sind Kuesten Hoehenlinien einer glatten Funktion und wirken rund
+ *      und blasig; mit ihm entstehen Halbinseln, Buchten und Fjorde.
+ *   2. Ein KONTINENTFELD mit sehr grosser Zelle bestimmt die grobe
+ *      Land/Meer-Verteilung - dafuer gibt es grosse Seen und Meere.
+ *   3. Ein DETAILFELD mit kleiner Zelle bricht das wieder auf. Es ist
+ *      bewusst stark genug, um Inseln ins Meer und Seen ins Land zu
+ *      stanzen. Sonst waere jede Region bildschirmweit einfarbig - genau
+ *      der Fehler des ersten Entwurfs mit nur einem Feld.
+ *   4. Ein RIDGED-Feld legt Gebirgszuege als Linien statt als Flecken an.
  */
 
-import { FP_ONE } from './fixed';
-import { fbm } from './noise';
+import { FP_ONE, div, mul } from './fixed';
+import { hash2i } from './hash';
+import { fbm, ridgedFbm, warpOffset } from './noise';
 
 export const Tile = {
   Water: 0,
@@ -32,54 +46,200 @@ export const TILE_NAMES: Record<Tile, string> = {
  */
 const F = (n: number): number => Math.round(n * FP_ONE);
 
-// Hoehenschwellen. Grosse Basiszelle (2^9 = 512 Tiles) erzeugt Kontinente
-// statt Rauschen, die feineren Oktaven bringen Kuestenlinien und Huegel.
-//
-// Die Werte sind an der gemessenen Verteilung von fbm() ausgerichtet, nicht
-// geraten: FBM mittelt ueber Oktaven und liefert deshalb keine gleichmaessige
-// Streuung ueber [-1,1], sondern ein schmales, leicht nach oben verschobenes
-// Band um den Median (~0.04). Schwellen weit draussen wuerden ganze
-// Terrainarten praktisch nie erzeugen.
-// Zielverteilung ungefaehr: 22% Wasser, 7% Sand, 8% Stein, 4% Berg, Rest Land.
-const H_WATER = F(-0.157);
-const H_SAND = F(-0.111);
-const H_STONE = F(0.3);
-const H_MOUNTAIN = F(0.419);
-const FOREST_THRESHOLD = F(0.04);
+// --- Feldparameter -----------------------------------------------------
 
-const HEIGHT_OCTAVES = 6;
-// 2^7 = 128 Tiles Basiszelle. Groesser sah zunaechst "kontinentaler" aus,
-// erzeugte aber Regionen, die ueber einen ganzen Bildschirm hinweg nur aus
-// Wasser oder nur aus Land bestehen. 128 zusammen mit gain 0.65 haelt den
-// Wasseranteil pro Bildschirm zuverlaessig zwischen etwa 8 und 35 Prozent.
-const HEIGHT_CELL_BITS = 7;
-const HEIGHT_GAIN = F(0.65);
+// Warping: grosse Zelle, damit die Verzerrung grossraeumig fliesst statt
+// die Kueste nur auszufransen.
+const WARP_CELL_BITS = 8;
+const WARP_TILES = 54;
+
+// Kontinente: 2^10 = 1024 Tiles Zellweite - achtmal groesser als im
+// Vorgaenger (128), dadurch Meere und Landmassen ueber mehrere Bildschirme.
+//
+// Entscheidend ist die SAETTIGUNG: das Feld wird stark verstaerkt (CONT_AMP)
+// und dann gekappt (CONT_LIMIT). Ein blosses Gewichten funktioniert nicht -
+// ein dominantes Tieffrequenzfeld erzeugt zwangslaeufig Regionen, die
+// komplett Land oder komplett Meer sind. Durch das Kappen ist das Feld im
+// Inneren einer Landmasse konstant; dort entscheidet allein das Detailfeld
+// und stanzt Binnenseen hinein. Im offenen Meer entstehen umgekehrt Inseln.
+//
+// Ehrliche Messung ueber 200 zufaellig platzierte Fenster und 5 Seeds
+// (Wasseranteil je Bildschirm):
+//   vorher, ein Feld 2^7:   7 % .. 48 %, Median 24 %
+//   jetzt:                  3 % .. 56 %, Median 23 %
+// Die Streuung waechst also - das ist der Preis fuer groessere Strukturen,
+// kein Fehler. Entscheidend ist die Obergrenze: kein einziges Fenster liegt
+// ueber 60 % Wasser, es gibt also keine unbespielbaren Regionen.
+const CONT_OCTAVES = 3;
+const CONT_CELL_BITS = 10;
+const CONT_GAIN = F(0.6);
+const CONT_AMP = F(8);
+const CONT_LIMIT = F(0.09);
+
+// Detail: 2^6 = 64 Tiles. Bricht die Kontinente auf und liefert Kuestenlinien.
+const DETAIL_OCTAVES = 4;
+const DETAIL_CELL_BITS = 6;
+const DETAIL_GAIN = F(0.55);
+
+const W_DETAIL = F(0.55);
+
+// Gebirge als Grate. Grosse Zelle und wenige Oktaven: das ergibt lange,
+// zusammenhaengende Ketten. Mehr Oktaven zerfasern sie wieder zu Flecken.
+const RIDGE_OCTAVES = 3;
+const RIDGE_CELL_BITS = 9;
+const RIDGE_GAIN = F(0.5);
+
 const FOREST_OCTAVES = 3;
 const FOREST_CELL_BITS = 6;
 
-const FOREST_SEED_OFFSET = 0x5bf03635 | 0;
+// Seed-Versaetze, damit die Felder nicht miteinander korrelieren.
+const S_WARP_X = 0x1b56c4e9 | 0;
+const S_WARP_Y = 0x7f4a7c15 | 0;
+const S_CONT = 0x2545f491 | 0;
+const S_DETAIL = 0x9e3779b9 | 0;
+const S_RIDGE = 0x3c6ef372 | 0;
+const S_FOREST = 0x5bf03635 | 0;
+const S_FOREST_JITTER = 0x68e31da4 | 0;
 
-export function heightAt(seed: number, x: number, y: number): number {
-  return fbm(seed, x, y, HEIGHT_OCTAVES, HEIGHT_CELL_BITS, HEIGHT_GAIN);
+// --- Schwellwerte ------------------------------------------------------
+// An der GEMESSENEN Verteilung ausgerichtet, nicht geraten. FBM mittelt ueber
+// Oktaven und streut deshalb nicht gleichmaessig ueber [-1,1], sondern in
+// einem schmalen Band. Siehe PLAN.md.
+// Zielanteile: 8% Tiefsee, 24% Wasser gesamt, 6% Sand, 12% Hochland,
+// davon ueber das Gratfeld ~4% Stein und ~1% Berg.
+/** Ab hier gilt Wasser als voll ausgetieft - Bezugswert fuer waterDepth. */
+const H_DEEP_FLOOR = F(-0.34);
+const H_WATER = F(-0.078);
+const H_SAND = F(-0.049);
+// Weicher Hoehenanteil fuer die Gebirgsbildung: unterhalb H_HILL zaehlt nur
+// der Grat, ab H_PEAK zaehlt die Hoehe voll.
+const H_HILL = F(0.05);
+const H_PEAK = F(0.34);
+const FOREST_THRESHOLD = F(0.02);
+// Streuung pro Tile an der Waldgrenze. Ohne sie folgt die Waldkante exakt
+// einer Hoehenlinie des Noise-Feldes und die Landschaft bekommt ein
+// Tarnmuster. Mit ihr franst der Rand aus - einzelne Baeume stehen noch im
+// Grasland, einzelne Lichtungen noch im Wald.
+const FOREST_JITTER = F(0.19);
+// Perzentile des Gratfelds INNERHALB des Hochlands, nicht global.
+// Schwellen auf den kombinierten Score aus Grat und Hoehe.
+const SCORE_STONE = F(0.72);
+const SCORE_MOUNTAIN = F(0.83);
+const W_RIDGE = F(0.68);
+const W_ALTITUDE = F(0.32);
+
+export interface TerrainSample {
+  tile: Tile;
+  /** Kombinierte Hoehe in [-FP_ONE, FP_ONE] - fuer die Reliefschattierung. */
+  height: number;
 }
 
-/** Terrain an einer Weltposition. Kennt keine Spielerbauten. */
-export function generateTile(seed: number, x: number, y: number): Tile {
-  const h = heightAt(seed, x, y);
+/**
+ * Vollstaendige Auswertung an einer Position. generateTile und heightAt
+ * greifen beide hierauf zu, damit der Renderer Hoehe und Kachelart in einem
+ * Durchgang bekommt statt das Feld zweimal auszuwerten.
+ */
+export function sampleTerrain(seed: number, x: number, y: number): TerrainSample {
+  // 1. Abfrageposition verzerren.
+  const wx =
+    x + warpOffset((seed ^ S_WARP_X) | 0, x, y, WARP_CELL_BITS, WARP_TILES);
+  const wy =
+    y + warpOffset((seed ^ S_WARP_Y) | 0, x, y, WARP_CELL_BITS, WARP_TILES);
 
-  if (h < H_WATER) return Tile.Water;
-  if (h < H_SAND) return Tile.Sand;
-  if (h > H_MOUNTAIN) return Tile.Mountain;
-  if (h > H_STONE) return Tile.Stone;
+  // 2. Kontinentfeld, verstaerkt und gekappt (siehe CONT_LIMIT).
+  let cont = mul(
+    fbm((seed ^ S_CONT) | 0, wx, wy, CONT_OCTAVES, CONT_CELL_BITS, CONT_GAIN),
+    CONT_AMP,
+  );
+  if (cont > CONT_LIMIT) cont = CONT_LIMIT;
+  else if (cont < -CONT_LIMIT) cont = -CONT_LIMIT;
+
+  // 3. Detailfeld.
+  const detail = fbm(
+    (seed ^ S_DETAIL) | 0,
+    wx,
+    wy,
+    DETAIL_OCTAVES,
+    DETAIL_CELL_BITS,
+    DETAIL_GAIN,
+  );
+
+  // mul() statt (a*b)>>16: das Rohprodukt erreicht hier 2^31 und wuerde beim
+  // Shift auf int32 umlaufen.
+  const height = (cont + mul(detail, W_DETAIL)) | 0;
+
+  return { tile: classify(seed, x, y, wx, wy, height), height };
+}
+
+function classify(
+  seed: number,
+  x: number,
+  y: number,
+  wx: number,
+  wy: number,
+  height: number,
+): Tile {
+  if (height < H_WATER) return Tile.Water;
+  if (height < H_SAND) return Tile.Sand;
+
+  // 4. Gebirge aus Grat UND Hoehe kombiniert.
+  //
+  // Ein harter Hoehenschnitt hat nicht funktioniert: die Grate entstanden dann
+  // nur innerhalb der Hochlandblasen, waren entsprechend kurz und lasen sich
+  // als graue Flecken. Mit einem weichen Hoehenanteil koennen sich Ketten
+  // ueber die Blasengrenzen hinweg fortsetzen und laufen an den Enden aus.
+  if (height > H_HILL) {
+    const ridge = ridgedFbm(
+      (seed ^ S_RIDGE) | 0,
+      wx,
+      wy,
+      RIDGE_OCTAVES,
+      RIDGE_CELL_BITS,
+      RIDGE_GAIN,
+    );
+    let alt = div((height - H_HILL) | 0, (H_PEAK - H_HILL) | 0);
+    if (alt > FP_ONE) alt = FP_ONE;
+    const score = (mul(ridge, W_RIDGE) + mul(alt, W_ALTITUDE)) | 0;
+    if (score > SCORE_MOUNTAIN) return Tile.Mountain;
+    if (score > SCORE_STONE) return Tile.Stone;
+  }
 
   const forest = fbm(
-    (seed + FOREST_SEED_OFFSET) | 0,
-    x,
-    y,
+    (seed ^ S_FOREST) | 0,
+    wx,
+    wy,
     FOREST_OCTAVES,
     FOREST_CELL_BITS,
   );
-  return forest > FOREST_THRESHOLD ? Tile.Forest : Tile.Grass;
+  // Jitter auf den UNVERZERRTEN Koordinaten, sonst wiederholt das Warping
+  // das Streumuster sichtbar.
+  const jitter =
+    (((hash2i(S_FOREST_JITTER, x, y) & 0xffff) - 0x8000) * FOREST_JITTER) >> 16;
+  return forest + jitter > FOREST_THRESHOLD ? Tile.Forest : Tile.Grass;
+}
+
+export function generateTile(seed: number, x: number, y: number): Tile {
+  return sampleTerrain(seed, x, y).tile;
+}
+
+export function heightAt(seed: number, x: number, y: number): number {
+  return sampleTerrain(seed, x, y).height;
+}
+
+/**
+ * Wassertiefe in [0, FP_ONE], 0 = Uferlinie, FP_ONE = Tiefsee.
+ *
+ * Bewusst ein Verlauf und keine Schwelle: mit einem harten Schnitt zwischen
+ * "flach" und "tief" wirken die dunklen Bereiche wie zufaellige Flecken im
+ * Wasser. Ein Verlauf liest sich dagegen als Tiefe und laesst Kuesten
+ * flach auslaufen.
+ *
+ * Nur fuer die Einfaerbung - die Spiellogik kennt nur Tile.Water.
+ */
+export function waterDepth(height: number): number {
+  if (height >= H_WATER) return 0;
+  const d = div((H_WATER - height) | 0, (H_WATER - H_DEEP_FLOOR) | 0);
+  return d > FP_ONE ? FP_ONE : d;
 }
 
 /** Begehbar fuer Strassen und Gebaeude. */

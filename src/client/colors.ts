@@ -1,6 +1,14 @@
 import { Tile } from '../sim/terrain';
 import { BuildingType, Good } from '../sim/types';
 
+/**
+ * Wasser wird nicht mit einer festen Farbe gezeichnet, sondern zwischen
+ * diesen beiden nach Tiefe interpoliert. Eine harte Grenze zwischen "flach"
+ * und "tief" liest sich als zufaellige Flecken, ein Verlauf als Tiefe.
+ */
+export const WATER_SHALLOW: readonly [number, number, number] = [78, 132, 172];
+export const WATER_DEEP: readonly [number, number, number] = [20, 42, 76];
+
 /** Basisfarbe je Terrain als [r,g,b]. */
 export const TILE_RGB: Record<Tile, readonly [number, number, number]> = {
   [Tile.Water]: [38, 78, 122],
