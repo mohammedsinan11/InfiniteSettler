@@ -15,6 +15,7 @@ export type GoodSprite = keyof typeof manifest.goods;
 export type ScatterSprite = keyof typeof manifest.scatter;
 export type ShoreSprite = keyof typeof manifest.shore;
 export type ShipDirection = keyof typeof manifest.ship;
+export type HarborDirection = keyof typeof manifest.smallHarbor;
 export type CarrierDirection = keyof typeof manifest.carrier;
 
 export interface GameAssets {
@@ -31,6 +32,13 @@ export interface GameAssets {
   carrier: Record<CarrierDirection, HTMLImageElement | null>;
   /** Handelsschiff in vier Blickrichtungen. */
   ship: Record<ShipDirection, HTMLImageElement | null>;
+  /**
+   * Kleiner Hafen in vier Blickrichtungen.
+   *
+   * Der einzige Bau mit echten Ansichten statt Gestaltungsvarianten - und
+   * damit der einzige, dessen Steg auch nach Norden zeigen kann.
+   */
+  smallHarbor: Record<HarborDirection, HTMLImageElement | null>;
   loaded: number;
   missing: number;
 }
@@ -69,7 +77,7 @@ async function loadGroup(paths: readonly string[]): Promise<HTMLImageElement[]> 
 }
 
 export async function loadGameAssets(): Promise<GameAssets> {
-  const [terrainEntries, buildingEntries, treeImages, resourceEntries, goodEntries, scatterEntries, shoreEntries, carrierEntries, shipEntries] =
+  const [terrainEntries, buildingEntries, treeImages, resourceEntries, goodEntries, scatterEntries, shoreEntries, carrierEntries, shipEntries, smallHarborEntries] =
     await Promise.all([
       Promise.all(
         Object.entries(manifest.terrain).map(async ([name, paths]) =>
@@ -104,6 +112,10 @@ export async function loadGameAssets(): Promise<GameAssets> {
         Object.entries(manifest.ship).map(async ([name, path]) =>
           [name, await loadImage(path)] as const),
       ),
+      Promise.all(
+        Object.entries(manifest.smallHarbor).map(async ([name, path]) =>
+          [name, await loadImage(path)] as const),
+      ),
     ]);
 
   const terrain = Object.fromEntries(terrainEntries) as GameAssets['terrain'];
@@ -114,10 +126,8 @@ export async function loadGameAssets(): Promise<GameAssets> {
     [BuildingType.Storehouse]: namedBuildings.storehouse ?? [],
     [BuildingType.Harbor]: namedBuildings.harbor ?? [],
     [BuildingType.Quarry]: namedBuildings.quarry ?? [],
-    // Die Vorstufen haben noch keine eigenen Grafiken und benutzen die
-    // ihrer Ausbaustufe; der Renderer zeichnet sie kleiner (spriteScale).
-    [BuildingType.Depot]: namedBuildings.storehouse ?? [],
-    [BuildingType.SmallHarbor]: namedBuildings.harbor ?? [],
+    [BuildingType.Depot]: namedBuildings.depot ?? [],
+    [BuildingType.SmallHarbor]: namedBuildings.small_harbor ?? [],
   };
   const resources = Object.fromEntries(resourceEntries) as GameAssets['resources'];
   const goods = Object.fromEntries(goodEntries) as GameAssets['goods'];
@@ -125,6 +135,7 @@ export async function loadGameAssets(): Promise<GameAssets> {
   const shore = Object.fromEntries(shoreEntries) as GameAssets['shore'];
   const carrier = Object.fromEntries(carrierEntries) as GameAssets['carrier'];
   const ship = Object.fromEntries(shipEntries) as GameAssets['ship'];
+  const smallHarbor = Object.fromEntries(smallHarborEntries) as GameAssets['smallHarbor'];
 
   const all = [
     ...Object.values(terrain).flat(),
@@ -136,6 +147,7 @@ export async function loadGameAssets(): Promise<GameAssets> {
     ...Object.values(shore).flat(),
     ...Object.values(carrier),
     ...Object.values(ship),
+    ...Object.values(smallHarbor),
   ];
   const loaded = all.filter((image) => image !== null).length;
   const expected =
@@ -147,7 +159,8 @@ export async function loadGameAssets(): Promise<GameAssets> {
     Object.values(manifest.scatter).reduce((n, paths) => n + paths.length, 0) +
     Object.values(manifest.shore).reduce((n, paths) => n + paths.length, 0) +
     Object.keys(manifest.carrier).length +
-    Object.keys(manifest.ship).length;
+    Object.keys(manifest.ship).length +
+    Object.keys(manifest.smallHarbor).length;
 
   return {
     terrain,
@@ -159,6 +172,7 @@ export async function loadGameAssets(): Promise<GameAssets> {
     shore,
     carrier,
     ship,
+    smallHarbor,
     loaded,
     missing: expected - loaded,
   };
@@ -186,6 +200,7 @@ export function emptyGameAssets(): GameAssets {
     shore: { cliff: [] },
     carrier: { down: null, left: null, right: null, up: null },
     ship: { down: null, left: null, right: null, up: null },
+    smallHarbor: { down: null, left: null, right: null, up: null },
     loaded: 0,
     missing: 0,
   };

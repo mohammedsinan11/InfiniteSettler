@@ -17,7 +17,7 @@ import { hash2i } from '../sim/hash';
 import { FP_ONE } from '../sim/fixed';
 import { buildingIdAt, getTile, hasRoad, type World } from '../sim/state';
 import { Tile, waterDepth } from '../sim/terrain';
-import { BUILDING_SPECS, GOOD_COUNT, type Building, type Carrier, type Ship } from '../sim/types';
+import { BUILDING_SPECS, BuildingType, GOOD_COUNT, type Building, type Carrier, type Ship } from '../sim/types';
 import type { CarrierDirection, GameAssets, TerrainSprite } from './assets';
 import type { Camera } from './camera';
 import {
@@ -42,17 +42,25 @@ import {
 const CHUNK_BUILD_MS = 8;
 const UNLOADED_COLOR = '#0d1319';
 /** Detailaufloesung des statischen Terrain-Chunk-Canvas. */
-const TERRAIN_PX = 8;
+// 8 war zu wenig: bei dieser Aufloesung ist eine Kachel im Chunkbild acht
+// Pixel gross, und ein Uebergang zwischen zwei Bodenarten haette
+// entsprechend acht Stufen. 12 reicht fuer eine lesbare Verzahnung; 16
+// sah kaum besser aus, kostete aber die Haelfte mehr Aufbauzeit. Der
+// Cache haelt dafuer weniger Chunks - der Speicher bleibt gleich.
+const TERRAIN_PX = 12;
 /** Deckkraft der Detailebene fuer nahtlose bzw. gerahmte Kacheln. */
 const DETAIL_ALPHA_SEAMLESS = 0.88;
 const DETAIL_ALPHA_FRAMED = 0.42;
 /** Wie stark Tiefe und Relief ueber den Kacheln nachgezogen werden. */
 const DEPTH_SHADE = 0.62;
 const RELIEF_SHADE = 1.6;
+/** Wie weit ein Nachbarboden in die Kachel hineingreift (Anteil der Kante). */
+const EDGE_REACH = 0.7;
+const EDGE_SEED = 0x51ed2b1f | 0;
 /** Aufloesung der vorgebackenen Strassenkachel. */
 const ROAD_PX = 32;
-/** 96 Chunks entsprechen rund 96 MiB Canvas-Pixeln statt ueber 500 MiB. */
-const MAX_RENDER_CHUNKS = 96;
+/** Bei 12 px je Kachel ist ein Chunkbild 768x768 - rund 2.25 MiB. */
+const MAX_RENDER_CHUNKS = 48;
 const SCENERY_MIN_ZOOM = 7;
 /**
  * Ab welchem Zoom Blumen und Buesche gezeichnet werden.
@@ -151,12 +159,17 @@ export interface BuildPreview {
 
 /** Wie ein Hafen zum Wasser steht. */
 interface HarborFacing {
-  /** Steg nach Osten statt nach Westen/Sueden. */
+  /** Tatsaechliche Richtung des Wassers, Index wie NEIGHBORS (N, O, S, W). */
+  dir: number;
+  /** Steg nach Osten statt nach Westen/Sueden - nur fuer den grossen Hafen. */
   mirrored: boolean;
   /** Versatz aus der Grundflaeche heraus Richtung Wasser, in Kacheln. */
   shiftX: number;
   shiftY: number;
 }
+
+/** NEIGHBORS-Index -> Name der Ansicht im Grafikpaket. */
+const FACING_NAME = ['up', 'right', 'down', 'left'] as const;
 
 interface Ghost {
   px: number;
@@ -185,6 +198,8 @@ export class Renderer {
    * kopiert nur noch 8x8-Bloecke.
    */
   private detailTiles = new Map<string, HTMLCanvasElement>();
+  /** Maskierte Randkacheln je Textur, Richtung und Streuvariante. */
+  private edgeTiles = new Map<string, HTMLCanvasElement>();
   /**
    * Verkleinerte Fassungen der Objektsprites, nach Zweierpotenzen gestuft.
    *
@@ -223,6 +238,7 @@ export class Renderer {
     this.assets = assets;
     this.cache.clear();
     this.detailTiles.clear();
+    this.edgeTiles.clear();
     this.scaledSprites.clear();
   }
 
@@ -287,6 +303,62 @@ export class Renderer {
     );
     this.detailTiles.set(key, baked);
     return baked;
+  }
+
+  /**
+   * Randkachel: die Textur des Nachbarn, auf einen Saum an EINER Seite
+   * maskiert.
+   *
+   * Damit entsteht der Uebergang, den das Grafikpaket nicht mitbringt.
+   * Bisher bekam eine Grenzkachel einfach den Boden ihres Nachbarn - die
+   * Grenze verschob sich damit um eine Kachel, blieb aber eine gerade
+   * Treppe. Jetzt greifen beide Boeden ineinander.
+   *
+   * Die Maske ist bewusst hart (ein Pixel gehoert ganz dem einen oder dem
+   * anderen Boden) statt weich: ein weicher Verlauf sieht bei Pixelart
+   * nach Weichzeichner aus, eine gestreute Kante nach Verzahnung. Ob ein
+   * Pixel uebernommen wird, entscheidet ein Zufallswert gegen seinen
+   * Abstand zur Kante - nah an der Kante fast immer, zur Mitte hin fast
+   * nie.
+   *
+   * Vier Streuvarianten je Richtung, ausgewaehlt ueber den Kachelhash:
+   * mit nur einer wiederholte sich das Zackenmuster entlang einer langen
+   * Kueste sichtbar.
+   */
+  private edgeTile(
+    image: HTMLImageElement,
+    dir: number,
+    variant: number,
+  ): HTMLCanvasElement {
+    const key = image.src + '#' + dir + '.' + variant;
+    const cached = this.edgeTiles.get(key);
+    if (cached) return cached;
+
+    const size = TERRAIN_PX;
+    const el = document.createElement('canvas');
+    el.width = size;
+    el.height = size;
+    const g = el.getContext('2d');
+    if (!g) throw new Error('Rand-Canvas nicht verfuegbar');
+    g.imageSmoothingEnabled = true;
+    g.drawImage(image, 0, 0, size, size);
+
+    const img = g.getImageData(0, 0, size, size);
+    const data = img.data;
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        // Abstand zur gemeinsamen Kante, 0 = direkt daran.
+        const d =
+          dir === 0 ? y : dir === 1 ? size - 1 - x : dir === 2 ? size - 1 - y : x;
+        const t = d / (size * EDGE_REACH);
+        const keep = 1 - t;
+        const noise = ((hash2i(EDGE_SEED + variant, x, y) >>> 8) & 1023) / 1023;
+        if (keep <= noise) data[(y * size + x) * 4 + 3] = 0;
+      }
+    }
+    g.putImageData(img, 0, 0);
+    this.edgeTiles.set(key, el);
+    return el;
   }
 
   /** Nach jeder Terrainaenderung aufrufen, sonst zeigt der Cache Altes. */
@@ -489,8 +561,7 @@ export class Renderer {
     g.imageSmoothingEnabled = false;
     for (let ly = 0; ly < CHUNK_SIZE; ly++) {
       for (let lx = 0; lx < CHUNK_SIZE; lx++) {
-        const blend = this.blendSprite(tiles, lx, ly, ox, oy);
-        const sprite = blend ?? TILE_SPRITE[tiles[(ly << CHUNK_BITS) | lx] as Tile];
+        const sprite = this.groundSprite(tiles, lx, ly, ox, oy);
         const variants = this.assets.terrain[sprite];
         if (variants.length === 0) continue;
         const seamless = SEAMLESS.has(sprite);
@@ -511,6 +582,32 @@ export class Renderer {
           if (orient & 4) g.scale(-1, 1);
           g.drawImage(tile, -TERRAIN_PX / 2, -TERRAIN_PX / 2);
           g.restore();
+        }
+
+        // Uebergang zu jedem anders belegten Nachbarn.
+        //
+        // Beide Seiten greifen ineinander: jede Kachel holt sich den Boden
+        // ihres Nachbarn an die gemeinsame Kante. Aus der Treppe zwischen
+        // Sand und Wiese wird damit eine Verzahnung.
+        for (let d = 0; d < 4; d++) {
+          const [dx, dy] = NEIGHBORS[d];
+          const nx = lx + dx;
+          const ny = ly + dy;
+          // Chunkrand: der Nachbar liegt im Nachbarchunk. Ihn
+          // nachzuschlagen waere teuer; eine fehlende Verzahnung faellt an
+          // einer einzelnen Kachelreihe nicht auf.
+          if (nx < 0 || ny < 0 || nx >= CHUNK_SIZE || ny >= CHUNK_SIZE) continue;
+          const other = this.groundSprite(tiles, nx, ny, ox, oy);
+          if (other === sprite) continue;
+          const set = this.assets.terrain[other];
+          if (set.length === 0) continue;
+          g.globalAlpha = SEAMLESS.has(other) ? DETAIL_ALPHA_SEAMLESS : DETAIL_ALPHA_FRAMED;
+          const nh = hash2i(this.textureSeed, ox + nx, oy + ny) >>> 0;
+          g.drawImage(
+            this.edgeTile(set[nh % set.length], d, (hash >>> (d * 2)) & 3),
+            lx * TERRAIN_PX,
+            ly * TERRAIN_PX,
+          );
         }
       }
     }
@@ -533,36 +630,23 @@ export class Renderer {
   }
 
   /**
-   * Boden am Rand einer anderen Terrainart.
+   * Welcher Boden auf dieser Kachel liegt.
    *
-   * Gras direkt neben Wald bekommt den Waldboden, Gras neben Fels den
-   * Erdboden. Das ist kein echter Uebergangskachelsatz - dafuer muesste
-   * das Grafikpaket Kanten mitbringen -, nimmt der Grenze aber den harten
-   * Farbsprung und laesst Waldraender bewachsen wirken.
+   * Frueher hiess das blendSprite und tauschte an einer Terraingrenze den
+   * ganzen Kachelboden gegen den des Nachbarn aus - die Grenze verschob
+   * sich damit um eine Kachel, blieb aber eine gerade Treppe. Die
+   * Verzahnung macht jetzt edgeTile; hier bleibt nur noch, was den Boden
+   * einer Kachel wirklich veraendert.
    */
-  /**
-   * Uebergangsboden an Terraingrenzen.
-   *
-   * Das Grafikpaket bringt keine echten Uebergangskacheln mit - es gibt
-   * kein "halb Gras, halb Sand". Stattdessen bekommt eine Kachel den
-   * Boden ihres Nachbarn, sobald genug Nachbarn anders sind. Das
-   * verschiebt die Grenze um eine Kachel und macht daraus einen Saum
-   * statt einer Schnittkante.
-   *
-   * Die Richtung ist dabei nicht beliebig: gemischt wird immer zum
-   * WEICHEREN Boden hin (Wald -> Wiese -> Sand). Andersherum fraesse sich
-   * der harte Boden nach aussen und Inseln wuerden von ihrem eigenen
-   * Strand zugewachsen.
-   */
-  private blendSprite(
+  private groundSprite(
     tiles: Uint8Array,
     lx: number,
     ly: number,
     ox: number,
     oy: number,
-  ): TerrainSprite | null {
+  ): TerrainSprite {
     const own = tiles[(ly << CHUNK_BITS) | lx] as Tile;
-    if (own === Tile.Water) return null;
+    if (own === Tile.Water) return 'water';
 
     const x = ox + lx;
     const y = oy + ly;
@@ -582,47 +666,7 @@ export class Renderer {
       }
     }
 
-    let water = 0;
-    let sand = 0;
-    let grass = 0;
-    let forest = 0;
-    let rocky = 0;
-    for (const [dx, dy] of NEIGHBORS) {
-      const nx = lx + dx;
-      const ny = ly + dy;
-      // Chunkrand: der Nachbar liegt im Nachbarchunk. Ihn nachzuschlagen
-      // waere teuer; die fehlende Mischung faellt an einer einzelnen
-      // Kachelreihe nicht auf.
-      if (nx < 0 || ny < 0 || nx >= CHUNK_SIZE || ny >= CHUNK_SIZE) continue;
-      switch (tiles[(ny << CHUNK_BITS) | nx] as Tile) {
-        case Tile.Water: water++; break;
-        case Tile.Sand: sand++; break;
-        case Tile.Grass: grass++; break;
-        case Tile.Forest: forest++; break;
-        default: rocky++; break;
-      }
-    }
-
-    switch (own) {
-      case Tile.Sand:
-        // Strand am Wasser bleibt Strand - aber wo er ins Grasland
-        // uebergeht, greift schon die Wiese herueber.
-        return water === 0 && grass >= 2 ? 'grass' : null;
-      case Tile.Grass:
-        if (water + sand >= 2) return 'sand';
-        if (forest >= 2) return 'forest_ground';
-        if (rocky >= 2) return 'dirt';
-        return null;
-      case Tile.Forest:
-        // Waldboden laeuft am Rand in Wiese aus, am Wasser in Sand.
-        if (water + sand >= 2) return 'sand';
-        return grass >= 3 ? 'grass' : null;
-      case Tile.Stone:
-      case Tile.Mountain:
-        return grass + forest >= 2 ? 'dirt' : null;
-      default:
-        return null;
-    }
+    return TILE_SPRITE[own];
   }
 
   /** Haelt den Cache klein: alles weit ausserhalb des Sichtfelds fliegt raus. */
@@ -993,12 +1037,17 @@ export class Renderer {
    */
   private drawHarbor(image: HTMLImageElement, b: Building, foot: number): void {
     const f = this.harborFacing(b, foot);
+    // Der kleine Hafen liegt in vier echten Ansichten vor und traegt kein
+    // gemaltes Wasser im Bild - er kann deshalb JEDE Richtung bedienen,
+    // auch Norden. Der grosse Hafen kann nur gespiegelt werden.
+    const view = this.assets.smallHarbor[FACING_NAME[f.dir]];
+    const directional = b.type === BuildingType.SmallHarbor && view !== null;
     this.drawOnFootprint(
-      image,
+      directional ? view : image,
       b.x + f.shiftX,
       b.y + f.shiftY,
       foot,
-      f.mirrored,
+      directional ? false : f.mirrored,
       BUILDING_SPECS[b.type].spriteScale,
     );
   }
@@ -1047,14 +1096,17 @@ export class Renderer {
       }
     }
 
-    // Nur Sueden, Osten und Westen kommen als Blickrichtung in Frage.
     // Bei Gleichstand gewinnt der kleinere Index - sonst haengt das Bild
     // an Rundungsfehlern und flackert beim Neuzeichnen.
+    let dir = 0;
+    for (const d of [1, 2, 3]) if (side[d] > side[dir]) dir = d;
+    // Fuer den grossen Hafen zusaetzlich die beste DARSTELLBARE Richtung.
     let best = 2;
     for (const d of [1, 3]) if (side[d] > side[best]) best = d;
 
     const norm = Math.hypot(sx, sy) || 1;
     const facing: HarborFacing = {
+      dir,
       // Gespiegelt genau dann, wenn der Steg nach Osten zeigen soll.
       mirrored: best === 1,
       shiftX: (sx / norm) * HARBOR_DOCK_SHIFT,

@@ -28,7 +28,14 @@ function checkerCandidate(data, offset) {
   return Math.min(r, g, b) >= 150 && Math.max(r, g, b) - Math.min(r, g, b) <= 52;
 }
 
-function removeEdgeCheckerboard(image) {
+function magentaCandidate(data, offset) {
+  const r = data[offset];
+  const g = data[offset + 1];
+  const b = data[offset + 2];
+  return r >= 180 && b >= 180 && g <= 110 && Math.min(r, b) - g >= 90;
+}
+
+function removeEdgeBackground(image, candidate) {
   const { width, height, data } = image;
   const count = width * height;
   const background = new Uint8Array(count);
@@ -37,7 +44,7 @@ function removeEdgeCheckerboard(image) {
   let tail = 0;
 
   const enqueue = (index) => {
-    if (background[index] || !checkerCandidate(data, index * 4)) return;
+    if (background[index] || !candidate(data, index * 4)) return;
     background[index] = 1;
     queue[tail++] = index;
   };
@@ -66,6 +73,32 @@ function removeEdgeCheckerboard(image) {
     if (background[i]) out[i * 4 + 3] = 0;
   }
   return { width, height, data: out };
+}
+
+function removeEdgeCheckerboard(image) {
+  return removeEdgeBackground(image, checkerCandidate);
+}
+
+function hasMagentaBackground(image) {
+  const required = Math.max(1, Math.floor(image.width * image.height * 0.05));
+  let matches = 0;
+  for (let offset = 0; offset < image.data.length; offset += 4) {
+    if (magentaCandidate(image.data, offset) && ++matches >= required) return true;
+  }
+  return false;
+}
+
+function removeMagenta(image) {
+  const out = new Uint8Array(image.data);
+  for (let offset = 0; offset < out.length; offset += 4) {
+    if (magentaCandidate(out, offset)) {
+      out[offset] = 0;
+      out[offset + 1] = 0;
+      out[offset + 2] = 0;
+      out[offset + 3] = 0;
+    }
+  }
+  return { width: image.width, height: image.height, data: out };
 }
 
 function alphaBounds(image) {
@@ -208,7 +241,8 @@ for (const file of files.sort()) {
     prepared = sampleLogicalTile(image);
   } else {
     const hasTransparency = image.data.some((value, index) => index % 4 === 3 && value < 250);
-    if (!hasTransparency) image = removeEdgeCheckerboard(image);
+    if (hasMagentaBackground(image)) image = removeMagenta(image);
+    else if (!hasTransparency) image = removeEdgeCheckerboard(image);
     if (category === 'buildings') prepared = renderSprite(image, 192, 6, true);
     else if (category === 'ships') prepared = renderSprite(image, 128, 4, false);
     else if (category === 'goods') prepared = renderSprite(image, 32, 2, false);

@@ -18,6 +18,7 @@ const groups: Array<[string, string[]]> = [
   ['resources', Object.values(manifest.resources).flat()],
   ['carrier', Object.values(manifest.carrier)],
   ['ship', Object.values(manifest.ship)],
+  ['smallHarbor', Object.values(manifest.smallHarbor)],
 ];
 const paths = [...new Set(groups.flatMap(([, p]) => p))];
 
@@ -26,7 +27,7 @@ describe('Grafikmanifest', () => {
     for (const [name, list] of groups) {
       expect(new Set(list).size, `${name} enthaelt Doppelte`).toBe(list.length);
     }
-    expect(paths.length).toBe(105);
+    expect(paths.length).toBe(113);
 
     for (const path of paths) {
       const file = new URL(`../src/assets/medieval/${path}`, import.meta.url);
@@ -39,9 +40,11 @@ describe('Grafikmanifest', () => {
 
   it('deckt alle aktuell simulierbaren Gebaeudetypen ab', () => {
     expect(Object.keys(manifest.buildings).sort()).toEqual([
+      'depot',
       'harbor',
       'quarry',
       'sawmill',
+      'small_harbor',
       'storehouse',
       'woodcutter',
     ]);

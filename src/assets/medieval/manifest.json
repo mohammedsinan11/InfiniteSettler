@@ -86,6 +86,18 @@
       "buildings/quarry/quarry_02.png",
       "buildings/quarry/quarry_03.png",
       "buildings/quarry/quarry_04.png"
+    ],
+    "depot": [
+      "buildings/depot/depot_01.png",
+      "buildings/depot/depot_02.png",
+      "buildings/depot/depot_03.png",
+      "buildings/depot/depot_04.png"
+    ],
+    "small_harbor": [
+      "buildings/small_harbor/down.png",
+      "buildings/small_harbor/left.png",
+      "buildings/small_harbor/right.png",
+      "buildings/small_harbor/up.png"
     ]
   },
   "trees": [
@@ -170,5 +182,11 @@
     "down": "ships/trade_down.png",
     "left": "ships/trade_left.png",
     "right": "ships/trade_right.png"
+  },
+  "smallHarbor": {
+    "down": "buildings/small_harbor/down.png",
+    "left": "buildings/small_harbor/left.png",
+    "right": "buildings/small_harbor/right.png",
+    "up": "buildings/small_harbor/up.png"
   }
 }

@@ -125,9 +125,9 @@ export interface BuildingSpec {
   /**
    * Groesse des Sprites im Verhaeltnis zur Grundflaeche.
    *
-   * Die kleinen Vorstufen benutzen vorerst das Bild ihrer Ausbaustufe.
-   * Kleiner gezeichnet sind sie trotzdem als Vorstufe zu erkennen, ohne
-   * dass dafuer eigene Grafiken noetig waeren.
+   * Reserve fuer Bauten, deren Grafik nicht die volle Grundflaeche
+   * ausfuellen soll. Seit die Vorstufen eigene Sprites haben, steht sie
+   * ueberall auf 1.
    */
   readonly spriteScale: number;
   /** Ausbaustufe, oder -1. */
@@ -286,7 +286,7 @@ export const BUILDING_SPECS: Record<BuildingType, BuildingSpec> = {
     carriers: 2,
     ships: 0,
     isPort: false,
-    spriteScale: 0.68,
+    spriteScale: 1,
     upgradesTo: BuildingType.Storehouse,
     upgradeCost: cost({ [Good.Plank]: 3, [Good.Stone]: 2 }),
   },
@@ -307,7 +307,7 @@ export const BUILDING_SPECS: Record<BuildingType, BuildingSpec> = {
     carriers: 2,
     ships: 1,
     isPort: true,
-    spriteScale: 0.72,
+    spriteScale: 1,
     upgradesTo: BuildingType.Harbor,
     upgradeCost: cost({ [Good.Plank]: 3, [Good.Stone]: 2 }),
   },

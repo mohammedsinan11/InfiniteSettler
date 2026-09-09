@@ -75,6 +75,19 @@ plus einem Variantenhinweis ("andere Dachfarbe", "andere Anordnung").
 5. **Mühle** — Windmühle mit Flügeln, Mehlsäcke davor
 6. **Bäckerei** — Fachwerkhaus mit Steinofen und rauchendem Schornstein
 
+#### Erledigt: Umschlagplatz und kleiner Hafen
+
+Beide sind geliefert (`art/generated-textures-v1/buildings/depot` und
+`.../small_harbor`) und seit `prepare-magenta-sprites.mjs` im Spiel. Der
+kleine Hafen kam gleich in **vier Blickrichtungen und ohne gemaltes
+Wasser** — genau richtig, und dadurch der erste Bau, dessen Steg auch nach
+Norden zeigen kann.
+
+Eine Kleinigkeit fürs nächste Mal: beim Umschlagplatz schimmerte das
+Magenta zwischen Dach und Pfosten durch. Das Freistellskript fängt das ab,
+aber sauberer wäre, den Hintergrund auch in eingeschlossenen Flächen in
+exakt derselben Farbe zu halten.
+
 #### Häfen — vier Blickrichtungen statt vier Varianten
 
 Bei den vorhandenen Hafensprites sind **Steg, Boot und ein Stück Wasser
@@ -92,7 +105,8 @@ Gestaltungsvarianten. Und wichtiger noch:
 > transparentem Grund. Das Wasser kommt aus der Karte — gemaltes Wasser im
 > Bild passt nie zur tatsächlichen Uferlinie.
 
-Dasselbe gilt für den kleinen Hafen unten.
+Der kleine Hafen ist genau so geliefert worden und funktioniert — der
+**große** Hafen fehlt noch in dieser Form.
 
 #### Vorstufen — neu, mit Priorität
 
