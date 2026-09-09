@@ -21,7 +21,8 @@ lesbare Bühne.
 - Kein gemaltes Wasser, Gras oder Sand in Gebäude- und Schiffsprites.
 - Pro Gruppe gleiche Palette, Pixeldichte, sichtbare Grundbreite und
   Detailstärke.
-- Keine bilineare Glättung im Renderer. Skalierung erfolgt pixelgenau.
+- Keine bilineare Glättung für Sprites oder Texturkörnung. Nur
+  großflächige Farb- und Reliefmasken dürfen weich interpoliert werden.
 - Saisonale Motive werden nicht zufällig in normale Gruppen gemischt.
 
 ## Exportprofile
@@ -42,6 +43,15 @@ lesbare Bühne.
 - Varianten einer Bodenart teilen Grundton und Randdefinition
 - bevorzugt gerichteter Wang-Satz; alternativ identische Randpixelreihen
 - mindestens ein 4×4-Kacheltest ohne sichtbares Gitter vor der Integration
+
+Der aktuelle Renderer hält bei allen sechs Varianten den Rand der ersten,
+sicher nahtlosen Referenzkachel fest und mischt die übrigen Motive nur im
+Inneren ein. Eine weltkoordinatenfeste Makrofarbmaske erzeugt darüber trockene,
+feuchte, helle und dunkle Partien über mehrere Dutzend Kacheln. Materialkanten
+folgen einer eindeutigen Hierarchie; nur eine Seite greift in die andere. Die
+Wald-/Wiesenmaske wird ausschließlich für die Darstellung geglättet, damit
+kleine Schachbrett-Inseln verschwinden, ohne Spielstände oder Bauplätze zu
+verändern.
 
 ### Bäume und Kliffs
 

@@ -16,10 +16,16 @@ import { CHUNK_BITS, CHUNK_SIZE, NEIGHBORS, chunkKey, parseKey, tileKey } from '
 import { hash2i } from '../sim/hash';
 import { FP_ONE } from '../sim/fixed';
 import { buildingIdAt, getTile, hasRoad, type World } from '../sim/state';
-import { Tile, waterDepth } from '../sim/terrain';
+import { generateTile, Tile, waterDepth } from '../sim/terrain';
 import { BUILDING_SPECS, BuildingType, GOOD_COUNT, type Building, type Carrier, type Ship } from '../sim/types';
 import type { CarrierDirection, GameAssets, TerrainSprite } from './assets';
 import type { Camera } from './camera';
+import {
+  shouldOverlayNeighbor,
+  smoothedVegetationTile,
+  terrainMacroMood,
+  terrainTintForMood,
+} from './terrain-style';
 import {
   BUILDING_COLOR,
   CARRIER_COLOR,
@@ -63,9 +69,13 @@ const RELIEF_SHADE = 1.6;
 // Materialbaender - an der Kueste besonders sichtbar.
 const EDGE_REACH = 0.38;
 const EDGE_SEED = 0x51ed2b1f | 0;
+/** 64x64 Chunk plus je eine visuelle Nachbarkachel fuer Uebergaenge. */
+const VISUAL_TERRAIN_SIZE = CHUNK_SIZE + 2;
+/** Makrofarbe aendert sich langsam genug fuer eine Abtastung je 2x2 Tiles. */
+const MACRO_SAMPLE = 2;
 /** Aufloesung der vorgebackenen Strassenkachel. */
 const ROAD_PX = 32;
-/** Bei 12 px je Kachel ist ein Chunkbild 768x768 - rund 2.25 MiB. */
+/** Bei 16 px je Kachel ist ein Chunkbild 1024x1024 - rund 4 MiB. */
 const MAX_RENDER_CHUNKS = 48;
 const SCENERY_MIN_ZOOM = 7;
 /**
@@ -316,6 +326,56 @@ export class Renderer {
   }
 
   /**
+   * Baut aus einer sicher nahtlosen Referenz und einer Gestaltungsvariante
+   * eine kompatible Kachel.
+   *
+   * Die gelieferten Varianten sind jeweils nur mit sich selbst nahtlos. Ihr
+   * Rand kann deshalb nicht direkt neben dem Rand einer anderen Variante
+   * liegen. Hier bleibt der aeusserste Pixelring immer bei Variante 1; nur
+   * das Innere wird weich in die gewaehlte Variante ueberblendet. So koennen
+   * alle sechs Motive sichtbar werden, ohne das Kachelraster zurueckzubringen.
+   */
+  private compatibleTerrainTile(
+    baseImage: HTMLImageElement,
+    detailImage: HTMLImageElement,
+  ): HTMLCanvasElement {
+    if (baseImage === detailImage) return this.detailTile(baseImage, TERRAIN_PX, false);
+
+    const key = baseImage.src + '>' + detailImage.src + '@' + TERRAIN_PX;
+    const cached = this.detailTiles.get(key);
+    if (cached) return cached;
+
+    const size = TERRAIN_PX;
+    const baked = document.createElement('canvas');
+    baked.width = size;
+    baked.height = size;
+    const g = baked.getContext('2d');
+    if (!g) throw new Error('Varianten-Canvas nicht verfuegbar');
+    g.imageSmoothingEnabled = false;
+    g.drawImage(this.detailTile(baseImage, size, false), 0, 0);
+
+    const overlay = document.createElement('canvas');
+    overlay.width = size;
+    overlay.height = size;
+    const overlayCtx = overlay.getContext('2d');
+    if (!overlayCtx) throw new Error('Varianten-Overlay nicht verfuegbar');
+    overlayCtx.imageSmoothingEnabled = false;
+    overlayCtx.drawImage(this.detailTile(detailImage, size, false), 0, 0);
+    const img = overlayCtx.getImageData(0, 0, size, size);
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const edge = Math.min(x, y, size - 1 - x, size - 1 - y);
+        const strength = edge === 0 ? 0 : edge === 1 ? 0.28 : edge === 2 ? 0.62 : edge === 3 ? 0.86 : 1;
+        img.data[(y * size + x) * 4 + 3] = Math.round(img.data[(y * size + x) * 4 + 3] * strength);
+      }
+    }
+    overlayCtx.putImageData(img, 0, 0);
+    g.drawImage(overlay, 0, 0);
+    this.detailTiles.set(key, baked);
+    return baked;
+  }
+
+  /**
    * Randkachel: die Textur des Nachbarn, auf einen Saum an EINER Seite
    * maskiert.
    *
@@ -476,6 +536,10 @@ export class Renderer {
     // fast vollstaendig verdeckt.
     const shadeImg = g.createImageData(CHUNK_SIZE, CHUNK_SIZE);
     const shadeData = shadeImg.data;
+    // Langsame Farbpartien gegen die Monotonie in der Fernansicht. Diese
+    // Ebene wird spaeter weich skaliert; die Pixeltextur selbst bleibt hart.
+    const macroImg = g.createImageData(CHUNK_SIZE, CHUNK_SIZE);
+    const macroData = macroImg.data;
     const ox = cx << CHUNK_BITS;
     const oy = cy << CHUNK_BITS;
 
@@ -495,12 +559,32 @@ export class Renderer {
       }
     }
 
+    // Die Terrainlogik darf wegen alter Spielstaende nicht nachtraeglich
+    // umklassifiziert werden. Fuer die Darstellung glatten wir jedoch kleine
+    // Wald-/Wieseninseln in einem 5x5-Fenster. Dadurch bleibt die eigentliche
+    // Welt deterministisch und bespielbar, waehrend die Materialgrenze nicht
+    // wie ein Schachbrett zerfasert.
+    const visualTiles = this.visualTerrainTiles(tiles, ox, oy);
+    const visualTileAt = (lx: number, ly: number): Tile =>
+      visualTiles[(ly + 1) * VISUAL_TERRAIN_SIZE + lx + 1] as Tile;
+    const macroSize = CHUNK_SIZE / MACRO_SAMPLE;
+    const macroMoods = new Float32Array(macroSize * macroSize);
+    for (let my = 0; my < macroSize; my++) {
+      for (let mx = 0; mx < macroSize; mx++) {
+        macroMoods[my * macroSize + mx] = terrainMacroMood(
+          this.textureSeed,
+          ox + mx * MACRO_SAMPLE,
+          oy + my * MACRO_SAMPLE,
+        );
+      }
+    }
+
     for (let ly = 0; ly < CHUNK_SIZE; ly++) {
       for (let lx = 0; lx < CHUNK_SIZE; lx++) {
         const idx = (ly << CHUNK_BITS) | lx;
         const wx = ox + lx;
         const wy = oy + ly;
-        const tile = tiles[idx];
+        const tile = visualTileAt(lx, ly);
         // Variation pro Tile. Bewusst je Kanal unterschiedlich: eine reine
         // Helligkeitsstreuung laesst grosse Flaechen weiter wie eine flache,
         // hochskalierte Luftaufnahme wirken, eine Farbtonstreuung nicht.
@@ -517,6 +601,14 @@ export class Renderer {
         let b: number;
 
         const p = idx << 2;
+        const macro = terrainTintForMood(
+          macroMoods[(ly >> 1) * macroSize + (lx >> 1)],
+          tile as Tile,
+        );
+        macroData[p] = macro[0];
+        macroData[p + 1] = macro[1];
+        macroData[p + 2] = macro[2];
+        macroData[p + 3] = macro[3];
         if (tile === Tile.Water) {
           const d = waterDepth(h << HEIGHT_SHIFT) / 65536;
           r = WATER_SHALLOW[0] + (WATER_DEEP[0] - WATER_SHALLOW[0]) * d;
@@ -569,21 +661,27 @@ export class Renderer {
     // ab; die nahtlosen v2-Kacheln vertragen fast volle Deckung - genau
     // daher kommt der Sprung in der Bodenqualitaet.
     g.imageSmoothingEnabled = false;
+    const bakedTerrain: Partial<Record<TerrainSprite, HTMLCanvasElement[]>> = {};
     for (let ly = 0; ly < CHUNK_SIZE; ly++) {
       for (let lx = 0; lx < CHUNK_SIZE; lx++) {
-        const sprite = this.groundSprite(tiles, lx, ly, ox, oy);
+        const sprite = this.groundSprite(visualTileAt(lx, ly), ox + lx, oy + ly);
         const variants = this.assets.terrain[sprite];
         if (variants.length === 0) continue;
         const seamless = SEAMLESS.has(sprite);
         g.globalAlpha = seamless ? DETAIL_ALPHA_SEAMLESS : DETAIL_ALPHA_FRAMED;
         const hash = hash2i(this.textureSeed, ox + lx, oy + ly) >>> 0;
-        // Die gelieferten Varianten sind jeweils nur mit sich selbst
-        // nahtlos. Varianten zu mischen oder einzelne Kacheln zu drehen
-        // verbindet inkompatible Randpixel und macht das Kachelraster
-        // sichtbar. Bis ein echter Wang-/Kanten-Satz vorliegt, verwenden
-        // nahtlose Flaechen deshalb eine unveraenderte Referenzkachel.
-        const variant = seamless ? 0 : hash % variants.length;
-        const tile = this.detailTile(variants[variant], TERRAIN_PX, !seamless);
+        // Die nahtlosen Varianten haben untereinander inkompatible Raender.
+        // compatibleTerrainTile behaelt deshalb den sicheren Referenzrand,
+        // bringt aber die Koernung aller sechs Varianten in die Flaeche.
+        const variant = hash % variants.length;
+        let bakedVariants = bakedTerrain[sprite];
+        if (!bakedVariants) {
+          bakedVariants = variants.map((image) => seamless
+            ? this.compatibleTerrainTile(variants[0], image)
+            : this.detailTile(image, TERRAIN_PX, true));
+          bakedTerrain[sprite] = bakedVariants;
+        }
+        const tile = bakedVariants[variant];
         const orient = seamless ? 0 : (hash >>> 12) & 7;
         if (orient === 0) {
           g.drawImage(tile, lx * TERRAIN_PX, ly * TERRAIN_PX);
@@ -596,22 +694,17 @@ export class Renderer {
           g.restore();
         }
 
-        // Uebergang zu jedem anders belegten Nachbarn. An Kuesten gilt eine
-        // feste Richtung: Sand greift in die Wasserkachel, Wasser aber nie
-        // zurueck in den Strand. Zweiseitiges Mischen erzeugte dort die
-        // unruhige Folge Strand-Wasser-Strand-Wasser.
+        // Uebergang zu jedem anders belegten Nachbarn. Fuer ALLE Materialien
+        // gilt dieselbe Einwegregel: nur das Material mit hoeherer Prioritaet
+        // greift in das niedrigere. Damit entstehen auch bei Wald-Sand und
+        // Wiese-Wald keine doppelten, wechselnden Saeume mehr.
         for (let d = 0; d < 4; d++) {
           const [dx, dy] = NEIGHBORS[d];
           const nx = lx + dx;
           const ny = ly + dy;
-          // Chunkrand: der Nachbar liegt im Nachbarchunk. Ihn
-          // nachzuschlagen waere teuer; eine fehlende Verzahnung faellt an
-          // einer einzelnen Kachelreihe nicht auf.
-          if (nx < 0 || ny < 0 || nx >= CHUNK_SIZE || ny >= CHUNK_SIZE) continue;
-          const other = this.groundSprite(tiles, nx, ny, ox, oy);
+          const other = this.groundSprite(visualTileAt(nx, ny), ox + nx, oy + ny);
           if (other === sprite) continue;
-          const coast = sprite === 'water' || other === 'water';
-          if (coast && !(sprite === 'water' && other === 'sand')) continue;
+          if (!shouldOverlayNeighbor(sprite, other)) continue;
           const set = this.assets.terrain[other];
           if (set.length === 0) continue;
           g.globalAlpha = SEAMLESS.has(other) ? DETAIL_ALPHA_SEAMLESS : DETAIL_ALPHA_FRAMED;
@@ -627,6 +720,19 @@ export class Renderer {
       }
     }
     g.globalAlpha = 1;
+
+    // Die Makrofarbe liegt UEBER der wiederholten Detailkachel. Sonst wuerde
+    // deren deckende Alphaebene die grossen Partien wieder vollstaendig
+    // verdecken. Weiche Skalierung ist hier beabsichtigt: Farbstimmung soll
+    // fliessen, waehrend Halme und Koerner pixelhart bleiben.
+    const macro = document.createElement('canvas');
+    macro.width = CHUNK_SIZE;
+    macro.height = CHUNK_SIZE;
+    const macroCtx = macro.getContext('2d');
+    if (!macroCtx) throw new Error('Terrain-Makro-Canvas nicht verfuegbar');
+    macroCtx.putImageData(macroImg, 0, 0);
+    g.imageSmoothingEnabled = true;
+    g.drawImage(macro, 0, 0, el.width, el.height);
 
     // Tiefe und Relief zuletzt, ueber die Kacheln. Weichgezeichnet
     // hochskaliert, damit daraus ein Verlauf wird und kein zweites
@@ -654,17 +760,11 @@ export class Renderer {
    * einer Kachel wirklich veraendert.
    */
   private groundSprite(
-    tiles: Uint8Array,
-    lx: number,
-    ly: number,
-    ox: number,
-    oy: number,
+    own: Tile,
+    x: number,
+    y: number,
   ): TerrainSprite {
-    const own = tiles[(ly << CHUNK_BITS) | lx] as Tile;
     if (own === Tile.Water) return 'water';
-
-    const x = ox + lx;
-    const y = oy + ly;
     const state = this.world.state;
 
     // Unter einem Gebaeude liegt gestampfter Boden. Sonst steht ein Haus
@@ -682,6 +782,82 @@ export class Renderer {
     }
 
     return TILE_SPRITE[own];
+  }
+
+  /** Darstellungsmaske fuer zusammenhaengende Wald- und Wiesenflaechen. */
+  private visualTerrainTiles(
+    tiles: Uint8Array,
+    ox: number,
+    oy: number,
+  ): Uint8Array {
+    const visual = new Uint8Array(VISUAL_TERRAIN_SIZE * VISUAL_TERRAIN_SIZE);
+    const overrides = this.world.state.terrainOverride;
+    // Eine sichtbare Randkachel plus Radius zwei fuer deren 5x5-Fenster.
+    const pad = 3;
+    const span = CHUNK_SIZE + pad * 2;
+    const stride = span + 1;
+    const forestPrefix = new Uint16Array(stride * stride);
+    const vegetationPrefix = new Uint16Array(stride * stride);
+
+    // Summenfelder machen aus 25 Nachbarpruefungen je Kachel vier Zugriffe.
+    // Der gepolsterte Rand stellt sicher, dass dieselbe Maske ueber
+    // Chunkgrenzen hinweg weiterlaeuft.
+    for (let py = 0; py < span; py++) {
+      let forestRow = 0;
+      let vegetationRow = 0;
+      for (let px = 0; px < span; px++) {
+        const lx = px - pad;
+        const ly = py - pad;
+        const tile = lx >= 0 && ly >= 0 && lx < CHUNK_SIZE && ly < CHUNK_SIZE
+          ? tiles[(ly << CHUNK_BITS) | lx] as Tile
+          : this.rawTerrainAt(ox + lx, oy + ly);
+        const vegetation = tile === Tile.Grass || tile === Tile.Forest;
+        if (vegetation) vegetationRow++;
+        if (tile === Tile.Forest) forestRow++;
+        const p = (py + 1) * stride + px + 1;
+        forestPrefix[p] = forestPrefix[p - stride] + forestRow;
+        vegetationPrefix[p] = vegetationPrefix[p - stride] + vegetationRow;
+      }
+    }
+
+    const areaSum = (prefix: Uint16Array, x0: number, y0: number, x1: number, y1: number): number =>
+      prefix[y1 * stride + x1]
+      - prefix[y0 * stride + x1]
+      - prefix[y1 * stride + x0]
+      + prefix[y0 * stride + x0];
+
+    for (let ly = -1; ly <= CHUNK_SIZE; ly++) {
+      for (let lx = -1; lx <= CHUNK_SIZE; lx++) {
+        const visualIndex = (ly + 1) * VISUAL_TERRAIN_SIZE + lx + 1;
+        const inside = lx >= 0 && ly >= 0 && lx < CHUNK_SIZE && ly < CHUNK_SIZE;
+        const own = inside
+          ? tiles[(ly << CHUNK_BITS) | lx] as Tile
+          : this.rawTerrainAt(ox + lx, oy + ly);
+        visual[visualIndex] = own;
+        if (own !== Tile.Grass && own !== Tile.Forest) continue;
+        const wx = ox + lx;
+        const wy = oy + ly;
+        if (overrides.has(tileKey(wx, wy))) continue;
+
+        // Bei Padding drei beginnt das Radius-2-Fenster bei lx+1/ly+1.
+        const x0 = lx + 1;
+        const y0 = ly + 1;
+        const forest = areaSum(forestPrefix, x0, y0, x0 + 5, y0 + 5);
+        const vegetation = areaSum(vegetationPrefix, x0, y0, x0 + 5, y0 + 5);
+        visual[visualIndex] = smoothedVegetationTile(own, forest, vegetation);
+      }
+    }
+    return visual;
+  }
+
+  /** Basisterrain ohne dabei einen kompletten Nachbarchunk anzulegen. */
+  private rawTerrainAt(x: number, y: number): Tile {
+    const overrides = this.world.state.terrainOverride;
+    if (overrides.size > 0) {
+      const override = overrides.get(tileKey(x, y));
+      if (override !== undefined) return override;
+    }
+    return generateTile(this.world.state.seed, x, y);
   }
 
   /** Haelt den Cache klein: alles weit ausserhalb des Sichtfelds fliegt raus. */
