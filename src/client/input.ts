@@ -50,18 +50,18 @@ export interface ModeEntry {
 }
 
 export const MODES: readonly ModeEntry[] = [
-  { mode: Mode.Pan, key: '1', label: 'Ansehen', group: ModeGroup.Tool },
-  { mode: Mode.Road, key: '2', label: 'Strasse', group: ModeGroup.Tool },
-  { mode: Mode.Woodcutter, key: '3', label: 'Holzfaeller', group: ModeGroup.Building },
-  { mode: Mode.Sawmill, key: '4', label: 'Saegewerk', group: ModeGroup.Building },
+  { mode: Mode.Pan, key: '1', label: 'Karte', group: ModeGroup.Tool },
+  { mode: Mode.Road, key: '2', label: 'Straße', group: ModeGroup.Tool },
+  { mode: Mode.Woodcutter, key: '3', label: 'Holzfäller', group: ModeGroup.Building },
+  { mode: Mode.Sawmill, key: '4', label: 'Sägewerk', group: ModeGroup.Building },
   { mode: Mode.Quarry, key: '5', label: 'Steinbruch', group: ModeGroup.Building },
   // Nahrungskette. Das Wohnhaus steht voran: es ist der Grund, warum es
   // die uebrigen ueberhaupt gibt.
   { mode: Mode.House, key: 'h', label: 'Wohnhaus', group: ModeGroup.Building },
-  { mode: Mode.FisherHut, key: 'f', label: 'Fischerhuette', group: ModeGroup.Building },
+  { mode: Mode.FisherHut, key: 'f', label: 'Fischerhütte', group: ModeGroup.Building },
   { mode: Mode.Farm, key: 'g', label: 'Getreidefeld', group: ModeGroup.Building },
-  { mode: Mode.Mill, key: 'm', label: 'Muehle', group: ModeGroup.Building },
-  { mode: Mode.Bakery, key: 'b', label: 'Baeckerei', group: ModeGroup.Building },
+  { mode: Mode.Mill, key: 'm', label: 'Mühle', group: ModeGroup.Building },
+  { mode: Mode.Bakery, key: 'b', label: 'Bäckerei', group: ModeGroup.Building },
   // Die Vorstufe steht jeweils VOR ihrer Ausbaustufe - das Baumenue liest
   // sich damit von guenstig nach teuer.
   { mode: Mode.Depot, key: '6', label: 'Umschlagplatz', group: ModeGroup.Building },
@@ -69,7 +69,7 @@ export const MODES: readonly ModeEntry[] = [
   { mode: Mode.SmallHarbor, key: '8', label: 'Kleiner Hafen', group: ModeGroup.Building },
   { mode: Mode.Harbor, key: '9', label: 'Hafen', group: ModeGroup.Building },
   { mode: Mode.Upgrade, key: 'e', label: 'Ausbauen', group: ModeGroup.Remove },
-  { mode: Mode.Demolish, key: '0', label: 'Abreissen', group: ModeGroup.Remove },
+  { mode: Mode.Demolish, key: '0', label: 'Abreißen', group: ModeGroup.Remove },
 ];
 
 export const BUILD_TYPE: Partial<Record<Mode, BuildingType>> = {
@@ -90,6 +90,10 @@ export const BUILD_TYPE: Partial<Record<Mode, BuildingType>> = {
 export class Input {
   mode: Mode = Mode.Pan;
   onModeChange: ((m: Mode) => void) | null = null;
+  /** Antippen im Kartenmodus waehlt eine Kachel fuer den Inspektor. */
+  onInspect: ((x: number, y: number) => void) | null = null;
+  /** Rein visuelle Rueckmeldung vor dem deterministischen Command. */
+  onAttempt: ((mode: Mode, x: number, y: number) => void) | null = null;
   /**
    * Verlegt eine Bauposition, bevor der Command entsteht.
    *
@@ -115,6 +119,9 @@ export class Input {
   private queueBeforePress = 0;
   private lastX = 0;
   private lastY = 0;
+  private pressX = 0;
+  private pressY = 0;
+  private dragged = false;
   private hoverX: number | null = null;
   private hoverY: number | null = null;
   /** Letzte Zeigerbewegung, fuer den Schwung beim Loslassen. */
@@ -210,6 +217,9 @@ export class Input {
     this.pointerDown = true;
     this.lastX = e.clientX;
     this.lastY = e.clientY;
+    this.pressX = e.clientX;
+    this.pressY = e.clientY;
+    this.dragged = false;
     this.lastPainted = '';
     // Rechte Maustaste schiebt immer, linke nur im Ansehen-Modus.
     this.panning = e.button !== 0 || this.mode === Mode.Pan;
@@ -238,6 +248,7 @@ export class Input {
 
     const dx = e.clientX - this.lastX;
     const dy = e.clientY - this.lastY;
+    if (Math.hypot(e.clientX - this.pressX, e.clientY - this.pressY) > 6) this.dragged = true;
 
     if (this.panning) {
       this.cam.dragBy(dx, dy);
@@ -295,6 +306,8 @@ export class Input {
   }
 
   private onPointerUp = (e: PointerEvent): void => {
+    const wasPanning = this.panning;
+    const wasDragged = this.dragged;
     this.pointers.delete(e.pointerId);
     if (this.pointers.size >= 2) {
       this.beginGesture();
@@ -317,6 +330,13 @@ export class Input {
     this.flingX = 0;
     this.flingY = 0;
     this.canvas.classList.remove('dragging');
+    if (wasPanning && !wasDragged && this.mode === Mode.Pan) {
+      const rect = this.canvas.getBoundingClientRect();
+      this.onInspect?.(
+        Math.floor(this.cam.screenToWorldX(e.clientX - rect.left)),
+        Math.floor(this.cam.screenToWorldY(e.clientY - rect.top)),
+      );
+    }
   };
 
   private onWheel = (e: WheelEvent): void => {
@@ -358,20 +378,24 @@ export class Input {
 
   private emitPaint(x: number, y: number): void {
     if (this.mode === Mode.Road) {
+      this.onAttempt?.(this.mode, x, y);
       this.queue.push({ t: 'road', x, y });
       return;
     }
     if (this.mode === Mode.Demolish) {
+      this.onAttempt?.(this.mode, x, y);
       this.queue.push({ t: 'demolish', x, y });
       return;
     }
     if (this.mode === Mode.Upgrade) {
+      this.onAttempt?.(this.mode, x, y);
       this.queue.push({ t: 'upgrade', x, y });
       return;
     }
     const bt = BUILD_TYPE[this.mode];
     if (bt === undefined) return;
     const at = this.resolveBuild?.(x, y) ?? { x, y };
+    this.onAttempt?.(this.mode, at.x, at.y);
     this.queue.push({ t: 'build', bt, x: at.x, y: at.y });
   }
 

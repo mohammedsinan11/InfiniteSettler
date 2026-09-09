@@ -4,7 +4,7 @@
  * Kernidee: jeder Chunk wird genau einmal in ein eigenes Canvas gezeichnet
  * und danach pro Frame mit einem Draw-Call geblittet. Die Grundfarben liegen
  * weiter in einem 64x64-ImageData; die geladenen Texturen werden einmalig in
- * acht Pixel pro Tile daruebergelegt. So bleiben Details sichtbar, ohne im
+ * sechzehn Pixel pro Tile daruebergelegt. So bleiben Details sichtbar, ohne im
  * laufenden Frame tausende Terrainbilder einzeln zu zeichnen.
  *
  * Der Renderer liest den Weltzustand ausschliesslich - er schreibt nie
@@ -41,21 +41,27 @@ import {
  */
 const CHUNK_BUILD_MS = 8;
 const UNLOADED_COLOR = '#0d1319';
-/** Detailaufloesung des statischen Terrain-Chunk-Canvas. */
-// 8 war zu wenig: bei dieser Aufloesung ist eine Kachel im Chunkbild acht
-// Pixel gross, und ein Uebergang zwischen zwei Bodenarten haette
-// entsprechend acht Stufen. 12 reicht fuer eine lesbare Verzahnung; 16
-// sah kaum besser aus, kostete aber die Haelfte mehr Aufbauzeit. Der
-// Cache haelt dafuer weniger Chunks - der Speicher bleibt gleich.
-const TERRAIN_PX = 12;
+/**
+ * Detailaufloesung des statischen Terrain-Chunk-Canvas.
+ *
+ * 16 ist absichtlich ein ganzzahliger Teiler der nativen 32-px-Kacheln.
+ * Bei 12 px musste der Browser ungleichmaessig herunterrechnen; zusammen
+ * mit bilinearer Glaettung war genau das der verwaschene Eindruck des
+ * Bodens. Die Chunkzahl ist bereits speicherbegrenzt, daher bleibt der
+ * Mehrbedarf kontrolliert.
+ */
+const TERRAIN_PX = 16;
 /** Deckkraft der Detailebene fuer nahtlose bzw. gerahmte Kacheln. */
-const DETAIL_ALPHA_SEAMLESS = 0.88;
+const DETAIL_ALPHA_SEAMLESS = 1;
 const DETAIL_ALPHA_FRAMED = 0.42;
 /** Wie stark Tiefe und Relief ueber den Kacheln nachgezogen werden. */
 const DEPTH_SHADE = 0.62;
 const RELIEF_SHADE = 1.6;
 /** Wie weit ein Nachbarboden in die Kachel hineingreift (Anteil der Kante). */
-const EDGE_REACH = 0.7;
+// Eine schmale Pixelkante reicht, um harte Treppen zu brechen. 0.7 zog den
+// Nachbarboden fast durch die ganze Kachel und erzeugte breite, wechselnde
+// Materialbaender - an der Kueste besonders sichtbar.
+const EDGE_REACH = 0.38;
 const EDGE_SEED = 0x51ed2b1f | 0;
 /** Aufloesung der vorgebackenen Strassenkachel. */
 const ROAD_PX = 32;
@@ -262,7 +268,9 @@ export class Renderer {
     el.height = h;
     const g = el.getContext('2d');
     if (!g) return image;
-    g.imageSmoothingEnabled = true;
+    // Pixel-Art bleibt beim Vorbacken auf ihrem Raster. Bilineare
+    // Glaettung erzeugt sonst weiche Saeume an jedem Sprite.
+    g.imageSmoothingEnabled = false;
     g.drawImage(image, 0, 0, w, h);
     this.scaledSprites.set(key, el);
     return el;
@@ -291,7 +299,9 @@ export class Renderer {
     baked.height = size;
     const g = baked.getContext('2d');
     if (!g) throw new Error('Detail-Canvas nicht verfuegbar');
-    g.imageSmoothingEnabled = true;
+    // Die Quellen haben ein logisches 32er-Raster. Naechster Nachbar
+    // erhaelt dessen Koernung beim exakten 32 -> 16 Downscale.
+    g.imageSmoothingEnabled = false;
     const inset = crop
       ? Math.max(1, Math.round(Math.min(image.naturalWidth, image.naturalHeight) * 0.08))
       : 0;
@@ -340,7 +350,7 @@ export class Renderer {
     el.height = size;
     const g = el.getContext('2d');
     if (!g) throw new Error('Rand-Canvas nicht verfuegbar');
-    g.imageSmoothingEnabled = true;
+    g.imageSmoothingEnabled = false;
     g.drawImage(image, 0, 0, size, size);
 
     const img = g.getImageData(0, 0, size, size);
@@ -567,12 +577,14 @@ export class Renderer {
         const seamless = SEAMLESS.has(sprite);
         g.globalAlpha = seamless ? DETAIL_ALPHA_SEAMLESS : DETAIL_ALPHA_FRAMED;
         const hash = hash2i(this.textureSeed, ox + lx, oy + ly) >>> 0;
-        const tile = this.detailTile(variants[hash % variants.length], TERRAIN_PX, !seamless);
-        // Zusaetzlich spiegeln und drehen. Aus sechs Grasvarianten werden
-        // so 48 sichtbar verschiedene Kacheln - ohne eine einzige neue
-        // Grafik. Ohne das wiederholt sich der Boden erkennbar, gerade auf
-        // grossen Wiesen-, Sand- und Wasserflaechen.
-        const orient = (hash >>> 12) & 7;
+        // Die gelieferten Varianten sind jeweils nur mit sich selbst
+        // nahtlos. Varianten zu mischen oder einzelne Kacheln zu drehen
+        // verbindet inkompatible Randpixel und macht das Kachelraster
+        // sichtbar. Bis ein echter Wang-/Kanten-Satz vorliegt, verwenden
+        // nahtlose Flaechen deshalb eine unveraenderte Referenzkachel.
+        const variant = seamless ? 0 : hash % variants.length;
+        const tile = this.detailTile(variants[variant], TERRAIN_PX, !seamless);
+        const orient = seamless ? 0 : (hash >>> 12) & 7;
         if (orient === 0) {
           g.drawImage(tile, lx * TERRAIN_PX, ly * TERRAIN_PX);
         } else {
@@ -584,11 +596,10 @@ export class Renderer {
           g.restore();
         }
 
-        // Uebergang zu jedem anders belegten Nachbarn.
-        //
-        // Beide Seiten greifen ineinander: jede Kachel holt sich den Boden
-        // ihres Nachbarn an die gemeinsame Kante. Aus der Treppe zwischen
-        // Sand und Wiese wird damit eine Verzahnung.
+        // Uebergang zu jedem anders belegten Nachbarn. An Kuesten gilt eine
+        // feste Richtung: Sand greift in die Wasserkachel, Wasser aber nie
+        // zurueck in den Strand. Zweiseitiges Mischen erzeugte dort die
+        // unruhige Folge Strand-Wasser-Strand-Wasser.
         for (let d = 0; d < 4; d++) {
           const [dx, dy] = NEIGHBORS[d];
           const nx = lx + dx;
@@ -599,12 +610,16 @@ export class Renderer {
           if (nx < 0 || ny < 0 || nx >= CHUNK_SIZE || ny >= CHUNK_SIZE) continue;
           const other = this.groundSprite(tiles, nx, ny, ox, oy);
           if (other === sprite) continue;
+          const coast = sprite === 'water' || other === 'water';
+          if (coast && !(sprite === 'water' && other === 'sand')) continue;
           const set = this.assets.terrain[other];
           if (set.length === 0) continue;
           g.globalAlpha = SEAMLESS.has(other) ? DETAIL_ALPHA_SEAMLESS : DETAIL_ALPHA_FRAMED;
           const nh = hash2i(this.textureSeed, ox + nx, oy + ny) >>> 0;
+          const otherSeamless = SEAMLESS.has(other);
+          const edgeVariant = otherSeamless ? 0 : nh % set.length;
           g.drawImage(
-            this.edgeTile(set[nh % set.length], d, (hash >>> (d * 2)) & 3),
+            this.edgeTile(set[edgeVariant], d, (hash >>> (d * 2)) & 3),
             lx * TERRAIN_PX,
             ly * TERRAIN_PX,
           );
@@ -933,9 +948,13 @@ export class Renderer {
               if (trees.length === 0) continue;
               const hash = hash2i(seed ^ TREE_SEED, x, y) >>> 0;
               if (treeStep > 1 && hash % treeStep !== 0) continue;
-              // Etwas luftiger als "jede Kachel": dicht an dicht kleben die
-              // Kronen aufeinander und der Wald verliert seine Silhouette.
-              if ((hash >>> 20) % 10 < 3) continue;
+              // Grobe 4x4-Cluster bestimmen die lokale Dichte, der Tile-Hash
+              // verteilt darin einzelne Baeume. So entstehen Lichtungen und
+              // Baumgruppen, statt dass jede Waldkachel dieselbe visuelle
+              // Bedeutung bekommt. Beides bleibt rein seed-abhaengig.
+              const cluster = hash2i(seed ^ (TREE_SEED + 0x45d9), x >> 2, y >> 2) >>> 0;
+              const threshold = 12 + ((cluster & 255) >>> 3);
+              if ((hash & 255) > threshold) continue;
               // Neben einer Strasse keine Baeume. Ihre Kronen ragen zwei
               // Kacheln nach oben und deckten den Weg sonst komplett zu -
               // die Strasse verschwand im Wald.
@@ -1030,26 +1049,41 @@ export class Renderer {
   /**
    * Hafen zum Wasser hin ausrichten.
    *
-   * Alle vier Hafensprites tragen ihren Steg links vorne. Liegt das Wasser
-   * oestlich, wird das Bild gespiegelt, damit der Steg nicht ins Landesinnere
-   * zeigt. Zusaetzlich rueckt das Gebaeude ein Stueck in Richtung Wasser, so
-   * dass der Steg die Uferlinie tatsaechlich beruehrt statt davor zu enden.
+   * Der alte grosse Hafen enthielt eine opake Wasserplatte und ist deshalb
+   * nicht mehr im Laufzeitmanifest. Bis die vier neuen Richtungs-Sprites
+   * vorliegen, setzt sich seine Ausbaustufe aus dem sauberen Richtungssteg
+   * und einem Umschlagplatz auf der Landseite zusammen. Beides bleibt auf
+   * transparentem Grund und funktioniert an allen vier Ufern.
    */
-  private drawHarbor(image: HTMLImageElement, b: Building, foot: number): void {
+  private drawHarbor(image: HTMLImageElement | null, b: Building, foot: number): void {
     const f = this.harborFacing(b, foot);
-    // Der kleine Hafen liegt in vier echten Ansichten vor und traegt kein
-    // gemaltes Wasser im Bild - er kann deshalb JEDE Richtung bedienen,
-    // auch Norden. Der grosse Hafen kann nur gespiegelt werden.
     const view = this.assets.smallHarbor[FACING_NAME[f.dir]];
-    const directional = b.type === BuildingType.SmallHarbor && view !== null;
-    this.drawOnFootprint(
-      directional ? view : image,
-      b.x + f.shiftX,
-      b.y + f.shiftY,
-      foot,
-      directional ? false : f.mirrored,
-      BUILDING_SPECS[b.type].spriteScale,
-    );
+    const scale = BUILDING_SPECS[b.type].spriteScale;
+
+    if (view) {
+      this.drawOnFootprint(view, b.x + f.shiftX, b.y + f.shiftY, foot, false, scale);
+      if (b.type === BuildingType.Harbor) {
+        const depot = this.assets.buildings[BuildingType.Depot]?.[
+          (b.id >>> 0) % (this.assets.buildings[BuildingType.Depot]?.length || 1)
+        ];
+        if (depot) {
+          // Gegen die Wasserrichtung versetzt: Lagerteil steht an Land,
+          // der Richtungssteg bleibt davor sichtbar.
+          this.drawOnFootprint(
+            depot,
+            b.x - f.shiftX * 0.72,
+            b.y - f.shiftY * 0.72,
+            foot,
+            false,
+            scale * 0.72,
+          );
+        }
+      }
+      return;
+    }
+
+    // Robuster Fallback fuer unvollstaendige Asset-Builds.
+    if (image) this.drawOnFootprint(image, b.x + f.shiftX, b.y + f.shiftY, foot, f.mirrored, scale);
   }
 
   /**
@@ -1126,7 +1160,7 @@ export class Renderer {
 
     const spec = BUILDING_SPECS[b.type];
     const foot = spec.footprint;
-    if (image && spec.isPort) {
+    if (spec.isPort && (image || this.assets.smallHarbor.down)) {
       this.drawHarbor(image, b, foot);
     } else if (image) {
       this.drawOnFootprint(image, b.x, b.y, foot, false, spec.spriteScale);

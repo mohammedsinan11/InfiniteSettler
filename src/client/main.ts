@@ -16,20 +16,22 @@ import { population, workersNeeded } from '../sim/economy';
 import { parseKey } from '../sim/coords';
 import { hashWorldHex, serialize, deserialize } from '../sim/serialize';
 import {
+  buildingAtTile,
   buildingIdAt,
   canPlaceBuilding,
   createWorld,
   getTile,
+  hasRoad,
   snapPlacement,
   stockSummary,
   type World,
 } from '../sim/state';
-import { TILE_NAMES, Tile } from '../sim/terrain';
-import { BUILDING_SPECS, BuildingType } from '../sim/types';
+import { isBuildable, TILE_NAMES, Tile } from '../sim/terrain';
+import { BUILDING_SPECS, BuildingType, GOOD_COUNT, GOOD_NAMES, type Building } from '../sim/types';
 import { TICK_MS, step } from '../sim/tick';
 import { Camera } from './camera';
 import { emptyGameAssets, loadGameAssets } from './assets';
-import { Hud } from './hud';
+import { Hud, type HudObjective, type HudSelection } from './hud';
 import { BUILD_TYPE, Input, Mode } from './input';
 import { clearSnapshot, loadSnapshot, saveSnapshot } from './persist';
 import { Renderer, type BuildPreview } from './renderer';
@@ -49,8 +51,13 @@ const hud = new Hud(
   () => {
     if (!centerOnSettlement()) centerOnLand();
   },
+  (speed) => setSimulationSpeed(speed),
 );
 input.onModeChange = (m) => hud.setMode(m);
+input.onInspect = (x, y) => {
+  selectedTile = { x, y };
+};
+input.onAttempt = (mode, x, y) => explainAttempt(mode, x, y);
 // Dieselbe Verlegung wie in der Vorschau - siehe buildPreview().
 input.resolveBuild = (x, y) => {
   const type = BUILD_TYPE[input.mode];
@@ -58,6 +65,11 @@ input.resolveBuild = (x, y) => {
   return snapPlacement(world, type, x, y) ?? { x, y };
 };
 input.setMode(Mode.Pan);
+
+/** Wasserfreie Vorschau fuer den grossen Hafen waehrend des Asset-Umbaus. */
+const buildingSprite = (type: BuildingType): HTMLImageElement | null =>
+  gameAssets.buildings[type]?.[0]
+  ?? (type === BuildingType.Harbor ? gameAssets.smallHarbor.down : null);
 
 // --- Aufsetzen ---------------------------------------------------------
 
@@ -100,9 +112,11 @@ function centerOnLand(): void {
 
 async function newWorld(seed: number): Promise<void> {
   attachWorld(createWorld(seed));
+  selectedTile = null;
   centerOnLand();
   await clearSnapshot();
   saveState = 'neue Welt';
+  hud.setWelcome(true);
 }
 
 async function resetSave(): Promise<void> {
@@ -175,6 +189,7 @@ async function boot(): Promise<void> {
   // damit genau das Gebaeude, das danach auf der Karte steht.
   hud.setAssets(gameAssets);
   hud.setMode(input.mode);
+  hud.setWelcome(world.state.buildings.size === 0);
   requestAnimationFrame(frame);
 }
 
@@ -205,7 +220,7 @@ function buildPreview(): BuildPreview | null {
       footprint: BUILDING_SPECS[b.type].footprint,
       valid: canUpgrade(world, hover.x, hover.y),
       snapped: false,
-      image: next === -1 ? null : (gameAssets.buildings[next]?.[0] ?? null),
+      image: next === -1 ? null : buildingSprite(next),
     };
   }
 
@@ -222,7 +237,7 @@ function buildPreview(): BuildPreview | null {
     footprint: BUILDING_SPECS[type].footprint,
     valid: canPlaceBuilding(world, type, at.x, at.y),
     snapped: snap !== null && (snap.x !== hover.x || snap.y !== hover.y),
-    image: gameAssets.buildings[type]?.[0] ?? null,
+    image: buildingSprite(type),
   };
 }
 
@@ -235,6 +250,20 @@ let hashCache = '';
 let lastHashAt = 0;
 let lastSaveAt = 0;
 let saveState = 'noch nicht gespeichert';
+let paused = false;
+let simSpeed: 1 | 2 | 4 = 1;
+let selectedTile: { x: number; y: number } | null = null;
+
+function setSimulationSpeed(value: 0 | 1 | 2 | 4): void {
+  if (value === 0) {
+    paused = !paused;
+    hud.toast(paused ? 'Simulation pausiert' : `Simulation läuft mit ${simSpeed}×`);
+    return;
+  }
+  simSpeed = value;
+  paused = false;
+  hud.toast(`Simulationsgeschwindigkeit: ${value}×`);
+}
 
 function resize(): void {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -262,7 +291,7 @@ function frame(now: number): void {
   resize();
   cam.update(dt / 1000, input.panAxis());
 
-  acc += dt;
+  acc += paused ? 0 : dt * simSpeed;
   let ticked = false;
   while (acc >= TICK_MS) {
     renderer.snapshotCarriers();
@@ -307,6 +336,7 @@ async function autosave(): Promise<void> {
 
 function updateHud(): void {
   const h = input.hoverTile();
+  const stock = stockSummary(world);
   hud.update({
     tick: world.state.tick,
     hash: hashCache || '...',
@@ -320,16 +350,153 @@ function updateHud(): void {
     chunksPending: renderer.pendingChunks,
     buildings: world.state.buildings.size,
     carriers: world.state.carriers.size,
-    stock: stockSummary(world),
+    stock,
     population: population(world),
     workersNeeded: workersNeeded(world),
     affordable: Object.fromEntries(
       Object.values(BuildingType).map((t) => [t, canAfford(world, t)]),
     ),
+    availableGoods: availableBuildingGoods(),
     seed: world.state.seed,
     saved: saveState,
     home: findHome(),
+    paused,
+    speed: simSpeed,
+    objective: currentObjective(),
+    selection: currentSelection(),
   });
+}
+
+/** Lagerbestand abzüglich bereits zugesagter Abholungen, wie bei canAfford. */
+function availableBuildingGoods(): number[] {
+  const available = new Array<number>(GOOD_COUNT).fill(0);
+  for (const building of world.state.buildings.values()) {
+    if (!BUILDING_SPECS[building.type].isSink) continue;
+    for (let good = 0; good < GOOD_COUNT; good++) {
+      available[good] += Math.max(0, building.input[good] - building.reserved[good]);
+    }
+  }
+  return available;
+}
+
+function hasBuilding(type: BuildingType): boolean {
+  for (const building of world.state.buildings.values()) if (building.type === type) return true;
+  return false;
+}
+
+function currentObjective(): HudObjective {
+  const buildings = world.state.buildings.size;
+  if (buildings === 0) return {
+    eyebrow: 'Erster Eintrag · 0 von 7', title: 'Ein Lager als Ausgangspunkt',
+    reason: 'Der erste Bau ist kostenlos und bringt Startvorräte sowie Träger.', progress: 0,
+    actionMode: Mode.Storehouse,
+  };
+  if (!hasBuilding(BuildingType.Storehouse) && !hasBuilding(BuildingType.Depot)) return {
+    eyebrow: 'Versorgung · 1 von 7', title: 'Warenfluss sichern',
+    reason: 'Ein Umschlagplatz sammelt Waren und entsendet Träger.', progress: 1 / 7,
+    actionMode: Mode.Depot,
+  };
+  if (!hasBuilding(BuildingType.Woodcutter)) return {
+    eyebrow: 'Rohstoffe · 2 von 7', title: 'Holzgewinnung beginnen',
+    reason: 'Setze den Holzfäller nah an Wald und verbinde ihn anschließend.', progress: 2 / 7,
+    actionMode: Mode.Woodcutter,
+  };
+  if (world.state.roads.size < 3) return {
+    eyebrow: 'Wege · 3 von 7', title: 'Den ersten Weg anlegen',
+    reason: 'Träger bewegen Waren nur über verbundene Straßen und Gebäude.', progress: 3 / 7,
+    actionMode: Mode.Road,
+  };
+  if (!hasBuilding(BuildingType.Sawmill)) return {
+    eyebrow: 'Verarbeitung · 4 von 7', title: 'Bretter herstellen',
+    reason: 'Das Sägewerk verwandelt Holz in den wichtigsten Baustoff.', progress: 4 / 7,
+    actionMode: Mode.Sawmill,
+  };
+  if (!hasBuilding(BuildingType.FisherHut) && !hasBuilding(BuildingType.Farm)) return {
+    eyebrow: 'Nahrung · 5 von 7', title: 'Eine Nahrungsquelle erschließen',
+    reason: 'Fisch ist der schnelle Einstieg; Brot trägt später eine größere Siedlung.', progress: 5 / 7,
+    actionMode: Mode.FisherHut,
+  };
+  if (!hasBuilding(BuildingType.House)) return {
+    eyebrow: 'Bevölkerung · 6 von 7', title: 'Ein Wohnhaus errichten',
+    reason: 'Ein versorgtes Haus bringt vier zusätzliche Arbeitskräfte.', progress: 6 / 7,
+    actionMode: Mode.House,
+  };
+  const pop = population(world);
+  const needed = workersNeeded(world);
+  if (needed > pop) return {
+    eyebrow: 'Arbeitskräfte · Engpass', title: 'Bevölkerung stabilisieren',
+    reason: `${needed - pop} Arbeitsplätze sind unbesetzt. Liefere Nahrung oder baue ein weiteres Haus.`, progress: .9,
+    actionMode: Mode.House,
+  };
+  return {
+    eyebrow: 'Freies Spiel · Versorgung stabil', title: 'Die Siedlung weiterentwickeln',
+    reason: 'Erschließe Stein, die Brotkette oder einen zweiten Hafenstandort.', progress: 1,
+  };
+}
+
+function currentSelection(): HudSelection | null {
+  if (!selectedTile) return null;
+  const building = buildingAtTile(world, selectedTile.x, selectedTile.y);
+  if (!building) {
+    return {
+      kind: 'tile', title: TILE_NAMES[getTile(world, selectedTile.x, selectedTile.y)],
+      subtitle: `Kachel ${selectedTile.x}, ${selectedTile.y}`,
+      lines: [
+        { label: 'Bebaubar', value: isBuildable(getTile(world, selectedTile.x, selectedTile.y)) ? 'Ja' : 'Nein' },
+        { label: 'Straße', value: hasRoad(world, selectedTile.x, selectedTile.y) ? 'Vorhanden' : 'Keine' },
+      ],
+    };
+  }
+  return buildingSelection(building);
+}
+
+function buildingSelection(building: Building): HudSelection {
+  const spec = BUILDING_SPECS[building.type];
+  const workerIds = [...world.state.buildings.values()]
+    .filter((item) => BUILDING_SPECS[item.type].needsWorker)
+    .map((item) => item.id).sort((a, b) => a - b);
+  const staffed = !spec.needsWorker || workerIds.indexOf(building.id) < population(world);
+  const stored = building.input.reduce((sum, value) => sum + value, 0)
+    + building.output.reduce((sum, value) => sum + value, 0);
+  const flow = spec.produces >= 0
+    ? `${spec.consumes >= 0 ? GOOD_NAMES[spec.consumes as keyof typeof GOOD_NAMES] + ' → ' : ''}${GOOD_NAMES[spec.produces as keyof typeof GOOD_NAMES]}`
+    : (spec.isSink ? 'Lagert und verteilt Waren' : 'Kein Warenfluss');
+  const lines: { label: string; value: string }[] = [
+    { label: 'Standort', value: `${building.x}, ${building.y}` },
+    { label: 'Besetzung', value: staffed ? 'Arbeitsbereit' : 'Nicht besetzt' },
+    { label: 'Aufgabe', value: flow },
+    { label: 'Puffer', value: `${stored} Waren` },
+  ];
+  if (spec.upgradesTo !== -1) {
+    const cost: string[] = [];
+    for (let good = 0; good < GOOD_COUNT; good++) if (spec.upgradeCost[good] > 0) cost.push(`${spec.upgradeCost[good]} ${GOOD_NAMES[good as keyof typeof GOOD_NAMES]}`);
+    lines.push({ label: 'Ausbau', value: `${BUILDING_SPECS[spec.upgradesTo].name} · ${cost.join(', ')}` });
+  }
+  return { kind: 'building', title: displayBuildingName(building.type), subtitle: `Gebäude #${building.id}`, lines };
+}
+
+function displayBuildingName(type: BuildingType): string {
+  return ({
+    [BuildingType.Woodcutter]: 'Holzfäller', [BuildingType.Sawmill]: 'Sägewerk',
+    [BuildingType.FisherHut]: 'Fischerhütte', [BuildingType.Mill]: 'Mühle',
+    [BuildingType.Bakery]: 'Bäckerei',
+  } as Partial<Record<BuildingType, string>>)[type] ?? BUILDING_SPECS[type].name;
+}
+
+function explainAttempt(mode: Mode, x: number, y: number): void {
+  const type = BUILD_TYPE[mode];
+  if (type !== undefined) {
+    if (!canAfford(world, type)) hud.toast('Nicht genügend Waren im Lager.', 'warning');
+    else if (!canPlaceBuilding(world, type, x, y)) hud.toast('Dieser Standort ist für das Gebäude ungeeignet oder belegt.', 'warning');
+    return;
+  }
+  if (mode === Mode.Road && (hasRoad(world, x, y) || buildingIdAt(world, x, y) !== undefined || !isBuildable(getTile(world, x, y)))) {
+    hud.toast('Hier kann keine Straße verlaufen.', 'warning');
+  } else if (mode === Mode.Upgrade && !canUpgrade(world, x, y)) {
+    hud.toast('Kein bezahlbarer Ausbau an dieser Stelle.', 'warning');
+  } else if (mode === Mode.Demolish && !hasRoad(world, x, y) && buildingIdAt(world, x, y) === undefined) {
+    hud.toast('Hier gibt es nichts abzureißen.', 'warning');
+  }
 }
 
 window.addEventListener('beforeunload', () => {

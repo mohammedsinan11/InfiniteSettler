@@ -49,10 +49,10 @@ const sortedIds = (m: Map<number, unknown>): number[] =>
 /**
  * Wieviele Siedler es gerade gibt.
  *
- * Abgeleitet, nicht gespeichert: ein Haus mit Nahrung im Bestand ist
- * bewohnt, eines ohne steht leer. Damit kann die Einwohnerzahl nicht vom
- * uebrigen Zustand abweichen - waere sie ein eigenes Feld, muesste sie
- * bei jedem Bau, Abriss und Ladevorgang mitgefuehrt werden.
+ * Abgeleitet, nicht gespeichert: ein Haus mit Nahrung im Bestand oder einer
+ * noch wirkenden Mahlzeit ist bewohnt. Damit kann die Einwohnerzahl nicht vom
+ * uebrigen Zustand abweichen - waere sie ein eigenes Feld, muesste sie bei
+ * jedem Bau, Abriss und Ladevorgang mitgefuehrt werden.
  *
  * Dazu die Gruendergruppe, die es immer gibt: ohne sie koennte man das
  * erste Haus nie bauen.
@@ -82,8 +82,9 @@ export function workersNeeded(world: World): number {
   return n;
 }
 
-/** Hat das Haus etwas zu essen da? */
-const isFed = (b: Building): boolean => FOODS.some((g) => b.input[g] > 0);
+/** Hat das Haus Nahrung auf Vorrat oder wirkt die letzte Mahlzeit noch? */
+const isFed = (b: Building): boolean =>
+  b.progress > 0 || FOODS.some((g) => b.input[g] > 0);
 
 /**
  * Mahlzeitentakt der Wohnhaeuser.

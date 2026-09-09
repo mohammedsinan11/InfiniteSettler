@@ -27,7 +27,9 @@ describe('Grafikmanifest', () => {
     for (const [name, list] of groups) {
       expect(new Set(list).size, `${name} enthaelt Doppelte`).toBe(list.length);
     }
-    expect(paths.length).toBe(136);
+    // Kuratierter Laufzeitsatz nach dem Grafik-Audit. Rohquellen und
+    // verworfene Atlas-Ausschnitte liegen unter art/, nicht im Vite-Glob.
+    expect(paths.length).toBe(123);
 
     for (const path of paths) {
       const file = new URL(`../src/assets/medieval/${path}`, import.meta.url);

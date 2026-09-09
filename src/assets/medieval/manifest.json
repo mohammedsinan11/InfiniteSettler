@@ -75,12 +75,7 @@
       "buildings/warehouse/warehouse_01.png",
       "buildings/warehouse/warehouse_02.png"
     ],
-    "harbor": [
-      "buildings/harbor/harbor_01.png",
-      "buildings/harbor/harbor_02.png",
-      "buildings/harbor/harbor_03.png",
-      "buildings/harbor/harbor_04.png"
-    ],
+    "harbor": [],
     "quarry": [
       "buildings/quarry/quarry_01.png",
       "buildings/quarry/quarry_02.png",
@@ -100,10 +95,10 @@
       "buildings/small_harbor/up.png"
     ],
     "house": [
-      "buildings/house/house_01.png",
-      "buildings/house/house_02.png",
-      "buildings/house/house_03.png",
-      "buildings/house/house_04.png"
+      "buildings/house/house_clean_01.png",
+      "buildings/house/house_clean_02.png",
+      "buildings/house/house_clean_03.png",
+      "buildings/house/house_clean_04.png"
     ],
     "fisher_hut": [
       "buildings/fisher_hut/fisher_hut_01.png",
@@ -112,10 +107,7 @@
       "buildings/fisher_hut/fisher_hut_04.png"
     ],
     "farm": [
-      "buildings/farm/farm_01.png",
-      "buildings/farm/farm_02.png",
-      "buildings/farm/farm_03.png",
-      "buildings/farm/farm_04.png"
+      "buildings/farm/farm_clean_01.png"
     ],
     "mill": [
       "buildings/mill/mill_01.png",
@@ -135,20 +127,13 @@
     "trees/oak_02.png",
     "trees/oak_03.png",
     "trees/oak_04.png",
-    "trees/pine_01.png",
-    "trees/pine_02.png",
-    "trees/pine_03.png",
-    "trees/pine_04.png"
+    "trees/pine_full_01.png",
+    "trees/pine_full_02.png",
+    "trees/pine_full_03.png",
+    "trees/pine_full_04.png"
   ],
   "shore": {
-    "cliff": [
-      "shore/cliff_01.png",
-      "shore/cliff_02.png",
-      "shore/cliff_03.png",
-      "shore/cliff_04.png",
-      "shore/cliff_05.png",
-      "shore/cliff_06.png"
-    ]
+    "cliff": []
   },
   "scatter": {
     "flowers": [

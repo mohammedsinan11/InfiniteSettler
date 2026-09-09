@@ -11,10 +11,13 @@ verwendet.
 
 ## Inhalt
 
-- 24 Gebaeude: Hafen, Steinbruch, Bergwerk, Fischerhuette, Muehle und
-  Baeckerei, jeweils vier Varianten
-- 8 Schiffe: Handelsschiff und kleines Kriegsschiff, jeweils in den vier
-  Blickrichtungen `up`, `down`, `left` und `right`
+- 32 Gebaeude: Hafen, Steinbruch, Bergwerk, Fischerhuette, Muehle und
+  Baeckerei sowie die neuen Vorstufen Umschlagplatz und Kleiner Hafen
+- Umschlagplatz: vier Gestaltungsvarianten unter `buildings/depot/`
+- Kleiner Hafen: vier Blickrichtungen unter `buildings/small_harbor/`;
+  bewusst ohne gemaltes Wasser, Ufer oder Bootshaus
+- 24 Schiffe: Handelsschiff, kleines Kriegsschiff und Fischkutter, jeweils
+  in acht Blickrichtungen
 - 36 Bodentexturen: Wiese, Sand, Wasser, Waldboden, Fels und Erdboden,
   jeweils sechs Varianten
 - 8 Warensymbole: Fisch, Brot, Mehl, Getreide, Kohle, Eisenbarren, Werkzeug
@@ -35,9 +38,10 @@ Gemeinsamer Stil: warmes, handgemaltes Pixel-Art fuer ein mittelalterliches
 Aufbauspiel, orthografische Spielansicht, klare Silhouette und lesbare Details.
 
 Gebaeude und Symbole wurden mit diesen verbindlichen Ausschluessen erzeugt:
-ein einzelnes Motiv, echte Transparenz, keine Beschriftung, kein Rahmen, kein
-Raster, kein Atlas und kein Uebersichtsblatt. Bei den Schiffen wurde zusaetzlich
-dieselbe Konstruktion und Beladung fuer alle vier Blickrichtungen verlangt.
+ein einzelnes Motiv auf Magenta, keine Beschriftung, kein Rahmen, kein Raster,
+kein Atlas und kein Uebersichtsblatt. Die Magenta-Quellen werden erst bei der
+Aufbereitung freigestellt. Bei Schiffen und dem kleinen Hafen wurde zusaetzlich
+dieselbe Konstruktion fuer alle Blickrichtungen verlangt.
 
 Fuer jede Bodentextur wurde ein einzelnes, vollflaechiges Quadrat ohne Objekte,
 Rahmen oder Text verlangt, dessen Details ueber gegenueberliegende Kanten

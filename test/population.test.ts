@@ -7,9 +7,10 @@
  * Faellt ein Glied aus, faellt die Kette in sich zusammen - und genau das
  * pruefen diese Tests.
  *
- * Die Einwohnerzahl ist bewusst ABGELEITET (ein Haus mit Nahrung ist
- * bewohnt) und kein eigenes Zustandsfeld. Sie kann damit nicht vom
- * uebrigen Zustand abweichen; die Tests halten diese Eigenschaft fest.
+ * Die Einwohnerzahl ist bewusst ABGELEITET (ein Haus mit Nahrung oder einer
+ * noch wirkenden Mahlzeit ist bewohnt) und kein eigenes Zustandsfeld. Sie
+ * kann damit nicht vom uebrigen Zustand abweichen; die Tests halten diese
+ * Eigenschaft fest.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -85,12 +86,23 @@ describe('Bevoelkerung und Nahrung', () => {
     expect(house.input[Good.Bread], 'Brot zuerst').toBe(0);
     expect(house.input[Good.Fish], 'Fisch liegt noch da').toBe(1);
     expect(house.progress, 'Brot haelt laenger vor').toBe(FOOD_TICKS[Good.Bread]);
+    expect(population(world), 'Bewohner bleiben waehrend die Mahlzeit wirkt').toBe(
+      BASE_SETTLERS + BUILDING_SPECS[BuildingType.House].settlers,
+    );
 
     // Nach Ablauf des Takts kommt der Fisch dran.
     house.progress = 0;
     stepHouses(world);
     expect(house.input[Good.Fish]).toBe(0);
     expect(house.progress).toBe(FOOD_TICKS[Good.Fish]);
+    expect(population(world), 'auch die letzte verbrauchte Mahlzeit zaehlt weiter').toBe(
+      BASE_SETTLERS + BUILDING_SPECS[BuildingType.House].settlers,
+    );
+
+    house.progress = 0;
+    expect(population(world), 'erst nach Ablauf der Mahlzeit wird das Haus leer').toBe(
+      BASE_SETTLERS,
+    );
   });
 
   it('ohne Siedler steht die Produktion still', () => {

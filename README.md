@@ -22,18 +22,30 @@ npm run dev
 
 | Eingabe | Wirkung |
 | --- | --- |
-| Ziehen (linke Taste im Modus *Ansehen*), rechte Taste immer | Karte schieben, laeuft nach dem Loslassen weich aus |
+| Ziehen im Modus *Karte*, rechte Taste immer | Karte schieben, laeuft nach dem Loslassen weich aus |
 | `W A S D` / Pfeiltasten | Karte schieben (mit Anlauf und Nachlauf) |
 | `Shift` halten | dreifache Scrollgeschwindigkeit |
 | Mausrad | Zoomen; der Punkt unter dem Cursor bleibt stehen |
-| `1`–`8` | Werkzeug waehlen |
-| `I` | Detailfeld ein-/ausblenden |
-| Ziehen im Modus *Strasse* / *Abreissen* | mehrere Tiles auf einmal |
+| `1`–`9`, `0`, Buchstabenkürzel | Werkzeug oder Gebäude wählen |
+| `C` | Siedlungsbuch öffnen/schließen |
+| `I` | Diagnostik ein-/ausblenden |
+| `Leertaste` | Simulation pausieren/fortsetzen |
+| Ziehen im Modus *Straße* / *Abreißen* | mehrere Kacheln auf einmal |
+| Antippen im Modus *Karte* | Kachel oder Gebäude untersuchen |
 | Zwei Finger (Touch) | schieben und zoomen, auch im Baumodus |
 
 Auf dem Handy ist die Zwei-Finger-Geste die einzige Art zu schieben, weil es
 weder rechte Maustaste noch Tastatur gibt. Setzt man den zweiten Finger auf,
 wird ein bereits ausgeloester Bau wieder zurueckgenommen.
+
+Das **Siedlungsbuch** ordnet Gebäude nach Grundversorgung, Nahrung und
+Logistik. Es zeigt Funktion, Kosten und fehlende Waren direkt an.
+Beim ersten Start liegt der Fokus auf dem empfohlenen Lager; das Buch öffnet
+dabei immer am Anfang. Nicht bezahlbare Vorhaben nennen die konkret fehlenden
+freien Waren direkt in der Karte, auch auf Touch-Geräten.
+Die Feldnotiz links oben schlägt den nächsten sinnvollen Schritt vor, sperrt
+aber keine Bauentscheidung. Simulationstempo, neue Welt, Zurücksetzen und
+Diagnostik liegen im Menü links oben. Zurücksetzen verlangt eine Bestätigung.
 
 ## Spielprinzip
 

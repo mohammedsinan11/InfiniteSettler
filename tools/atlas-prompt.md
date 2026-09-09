@@ -75,6 +75,17 @@ plus einem Variantenhinweis ("andere Dachfarbe", "andere Anordnung").
 5. **Mühle** — Windmühle mit Flügeln, Mehlsäcke davor
 6. **Bäckerei** — Fachwerkhaus mit Steinofen und rauchendem Schornstein
 
+### Gebäude — als sauberer Ersatzsatz neu zeichnen
+
+11. **Wohnhaus** — vier gleich große 2×2-Gebäudevarianten; keine
+    Beschriftung, kein Rahmen, keine mitgemalte Bodenkachel. Der aktuelle
+    Laufzeitsatz verwendet vier brauchbare v0.1-Motive als Übergang, weil die
+    vorherigen v0.2-Dateien beschriftete Atlas-Spalten waren.
+12. **Getreidefeld/Bauernhof** — vier Varianten als klare Wachstumsreihe:
+    vorbereitetes Feld, junge Saat, wachsendes Getreide, erntereifes Feld.
+    Das Feld muss in allen Bildern dieselbe Grundfläche behalten; keine Mühle
+    als Farmvariante. Aktuell ist nur eine saubere Übergangsgrafik aktiv.
+
 #### Erledigt: Umschlagplatz und kleiner Hafen
 
 Beide sind geliefert (`art/generated-textures-v1/buildings/depot` und
@@ -153,7 +164,8 @@ Spiel nur halbdurchsichtig über einer prozeduralen Grundfarbe. Mit
 nahtlosen Kacheln fiele dieser Umweg weg und der Boden würde deutlich
 klarer.
 
-**Erledigt mit `art/generated-textures-v2/`.** Gemessen (mittlere
+**Technisch geliefert mit `art/generated-textures-v2/`, aber visuell noch
+nicht final.** Gemessen (mittlere
 Farbdifferenz über die Kachelnaht im Verhältnis zu einem normalen
 Nachbarschritt innerhalb der Kachel, 1.0 = unsichtbar):
 
@@ -165,8 +177,14 @@ Nachbarschritt innerhalb der Kachel, 1.0 = unsichtbar):
 | Erdboden | 1.84 | 0.90 |
 | Waldboden | 1.25 | 0.92 |
 
-Die v2-Kacheln sind damit tatsächlich nahtlos und seit `prepare-ground-v2.mjs`
-im Spiel. Zwei Punkte für den nächsten Satz:
+Die v2-Kacheln sind einzeln mit sich selbst nahtlos. Im Spiel zeigte sich
+jedoch, dass sechs Varianten untereinander keine kompatiblen Randpixel haben;
+zufälliges Mischen und Drehen machte deshalb erneut ein Kachelraster sichtbar.
+Der Renderer verwendet bis zu einem echten Kanten-/Wang-Satz pro Bodenart nur
+eine unveränderte Referenzkachel. Außerdem war das frühere 32→12-Downsampling
+mit Glättung sichtbar verwaschen; es läuft jetzt pixelgenau über 16 Pixel.
+
+Drei Punkte für den nächsten Satz:
 
 1. **Varianten müssen denselben Grundton haben.** Geliefert unterschieden
    sie sich nicht nur in der Körnung, sondern im Farbton — beim Sand lagen
@@ -179,6 +197,10 @@ im Spiel. Zwei Punkte für den nächsten Satz:
 2. **Ausgabe in nativer Größe.** Die PNGs kommen mit 1254 x 1254, obwohl
    der Inhalt ein logisches 32er-Raster ist. Unschädlich (das Skript rechnet
    es exakt zurück), aber unnötig groß.
+3. **Varianten müssen auch untereinander kantenkompatibel sein.** „Jede Datei
+   ist mit sich selbst nahtlos“ reicht für zufällige Nachbarschaften nicht.
+   Entweder alle Varianten teilen dieselben vier Randpixelreihen, oder sie
+   werden als gerichteter Wang-Tile-Satz mit dokumentierten Kanten geliefert.
 
 ### Warensymbole
 
@@ -187,7 +209,11 @@ Kohle, Eisenbarren, Werkzeug, Fleisch**.
 
 ## Was schon da ist — nicht nochmal erzeugen
 
-Aus dem v0.2-Paket vorhanden: Wohnhaus, Holzfällerhütte, Sägewerk,
-Lagerhaus, Farm; Eiche und Kiefer; Arbeiter, Holzfäller, Bauer und
+Aus dem v0.2-/v0.1-Bestand vorerst brauchbar: Holzfällerhütte, Sägewerk,
+Lagerhaus und Eiche; Arbeiter, Holzfäller, Bauer und
 **Soldat** (je 8 Bilder); Kuh, Schaf, Pferd, Huhn; Holz, Stein, Eisen,
 Getreide, Beeren; Brücken; Klippen und Uferkanten; 21 Dekorationen.
+
+Wichtig: Die vorhandenen Kiefernfragmente und frei gedrehten Kliff-Vollkacheln
+sind aus dem aktiven Laufzeitsatz entfernt. Kliffs bleiben als
+Kompositionsreferenz nützlich, sind aber keine spielfertigen Richtungsassets.
