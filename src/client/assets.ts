@@ -168,7 +168,7 @@ export function emptyGameAssets(): GameAssets {
   return {
     terrain: {
       grass: [], dirt: [], sand: [], road: [], water: [],
-      forest_ground: [], snow: [],
+      forest_ground: [], rock: [],
     },
     buildings: {
       [BuildingType.Woodcutter]: [],

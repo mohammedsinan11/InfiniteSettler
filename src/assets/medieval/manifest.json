@@ -4,34 +4,28 @@
   "source": "AI-generated atlas supplied with the project; curated and re-extracted locally",
   "terrain": {
     "grass": [
-      "terrain/grass_01.png",
-      "terrain/grass_02.png",
-      "terrain/grass_03.png",
-      "terrain/grass_04.png",
-      "terrain/grass_05.png",
-      "terrain/grass_06.png",
-      "terrain/grass_07.png",
-      "terrain/grass_08.png"
+      "ground/ground_grass_01.png",
+      "ground/ground_grass_02.png",
+      "ground/ground_grass_03.png",
+      "ground/ground_grass_04.png",
+      "ground/ground_grass_05.png",
+      "ground/ground_grass_06.png"
     ],
     "dirt": [
-      "terrain/dirt_01.png",
-      "terrain/dirt_02.png",
-      "terrain/dirt_03.png",
-      "terrain/dirt_04.png",
-      "terrain/dirt_05.png",
-      "terrain/dirt_06.png",
-      "terrain/dirt_07.png",
-      "terrain/dirt_08.png"
+      "ground/ground_dirt_01.png",
+      "ground/ground_dirt_02.png",
+      "ground/ground_dirt_03.png",
+      "ground/ground_dirt_04.png",
+      "ground/ground_dirt_05.png",
+      "ground/ground_dirt_06.png"
     ],
     "sand": [
-      "terrain/sand_01.png",
-      "terrain/sand_02.png",
-      "terrain/sand_03.png",
-      "terrain/sand_04.png",
-      "terrain/sand_05.png",
-      "terrain/sand_06.png",
-      "terrain/sand_07.png",
-      "terrain/sand_08.png"
+      "ground/ground_sand_01.png",
+      "ground/ground_sand_02.png",
+      "ground/ground_sand_03.png",
+      "ground/ground_sand_04.png",
+      "ground/ground_sand_05.png",
+      "ground/ground_sand_06.png"
     ],
     "road": [
       "terrain/road_01.png",
@@ -44,34 +38,28 @@
       "terrain/road_08.png"
     ],
     "water": [
-      "terrain/water_01.png",
-      "terrain/water_02.png",
-      "terrain/water_03.png",
-      "terrain/water_04.png",
-      "terrain/water_05.png",
-      "terrain/water_06.png",
-      "terrain/water_07.png",
-      "terrain/water_08.png"
+      "ground/ground_water_01.png",
+      "ground/ground_water_02.png",
+      "ground/ground_water_03.png",
+      "ground/ground_water_04.png",
+      "ground/ground_water_05.png",
+      "ground/ground_water_06.png"
     ],
     "forest_ground": [
-      "terrain/forest_ground_01.png",
-      "terrain/forest_ground_02.png",
-      "terrain/forest_ground_03.png",
-      "terrain/forest_ground_04.png",
-      "terrain/forest_ground_05.png",
-      "terrain/forest_ground_06.png",
-      "terrain/forest_ground_07.png",
-      "terrain/forest_ground_08.png"
+      "ground/ground_forest_ground_01.png",
+      "ground/ground_forest_ground_02.png",
+      "ground/ground_forest_ground_03.png",
+      "ground/ground_forest_ground_04.png",
+      "ground/ground_forest_ground_05.png",
+      "ground/ground_forest_ground_06.png"
     ],
-    "snow": [
-      "terrain/snow_01.png",
-      "terrain/snow_02.png",
-      "terrain/snow_03.png",
-      "terrain/snow_04.png",
-      "terrain/snow_05.png",
-      "terrain/snow_06.png",
-      "terrain/snow_07.png",
-      "terrain/snow_08.png"
+    "rock": [
+      "ground/ground_rock_01.png",
+      "ground/ground_rock_02.png",
+      "ground/ground_rock_03.png",
+      "ground/ground_rock_04.png",
+      "ground/ground_rock_05.png",
+      "ground/ground_rock_06.png"
     ]
   },
   "buildings": {

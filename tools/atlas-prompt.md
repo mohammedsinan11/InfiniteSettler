@@ -75,6 +75,25 @@ plus einem Variantenhinweis ("andere Dachfarbe", "andere Anordnung").
 5. **Mühle** — Windmühle mit Flügeln, Mehlsäcke davor
 6. **Bäckerei** — Fachwerkhaus mit Steinofen und rauchendem Schornstein
 
+#### Häfen — vier Blickrichtungen statt vier Varianten
+
+Bei den vorhandenen Hafensprites sind **Steg, Boot und ein Stück Wasser
+fest ins Bild gemalt**, und zwar vorne links. Spiegeln deckt damit Wasser
+im Osten ab, ungespiegelt Wasser im Westen und Süden — für Wasser im
+**Norden** gibt es keine Darstellung, denn Drehen stellt das Dach auf den
+Kopf. An einer Nordküste liegt deshalb ein Stück gemaltes Wasser auf der
+Wiese.
+
+Gebraucht wird der Hafen deshalb wie die Schiffe in **vier
+Blickrichtungen** (Steg nach oben, unten, links, rechts) statt in vier
+Gestaltungsvarianten. Und wichtiger noch:
+
+> **Kein Wasser im Sprite.** Nur Gebäude, Steg und Poller auf
+> transparentem Grund. Das Wasser kommt aus der Karte — gemaltes Wasser im
+> Bild passt nie zur tatsächlichen Uferlinie.
+
+Dasselbe gilt für den kleinen Hafen unten.
+
 #### Vorstufen — neu, mit Priorität
 
 Diese beiden sind gerade ins Spiel gekommen und benutzen behelfsweise das
@@ -132,10 +151,20 @@ Nachbarschritt innerhalb der Kachel, 1.0 = unsichtbar):
 | Erdboden | 1.84 | 0.90 |
 | Waldboden | 1.25 | 0.92 |
 
-Die v2-Kacheln sind damit tatsächlich nahtlos. Offen bleibt nur, dass die
-PNGs mit 1254 x 1254 ausgeliefert werden, obwohl der Inhalt ein logisches
-32er-Raster ist — das ist unschädlich, kostet aber unnötig Platz. Eine
-Ausgabe in nativer Größe wäre für den nächsten Satz besser.
+Die v2-Kacheln sind damit tatsächlich nahtlos und seit `prepare-ground-v2.mjs`
+im Spiel. Zwei Punkte für den nächsten Satz:
+
+1. **Varianten müssen denselben Grundton haben.** Geliefert unterschieden
+   sie sich nicht nur in der Körnung, sondern im Farbton — beim Sand lagen
+   zwischen der hellsten und der dunkelsten Variante 66 Helligkeitsstufen,
+   beim Wasser 90. Nebeneinander gelegt ergibt das einen Flickenteppich
+   statt einer Fläche. Das Skript zieht die Kacheln jetzt auf einen
+   gemeinsamen Mittelwert, aber im Prompt gehört der Satz dazu: *alle
+   Varianten einer Kategorie in exakt derselben Grundfarbe, es unterscheidet
+   sich nur die Anordnung der Körnung*.
+2. **Ausgabe in nativer Größe.** Die PNGs kommen mit 1254 x 1254, obwohl
+   der Inhalt ein logisches 32er-Raster ist. Unschädlich (das Skript rechnet
+   es exakt zurück), aber unnötig groß.
 
 ### Warensymbole
 

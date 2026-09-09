@@ -43,6 +43,12 @@ const CHUNK_BUILD_MS = 8;
 const UNLOADED_COLOR = '#0d1319';
 /** Detailaufloesung des statischen Terrain-Chunk-Canvas. */
 const TERRAIN_PX = 8;
+/** Deckkraft der Detailebene fuer nahtlose bzw. gerahmte Kacheln. */
+const DETAIL_ALPHA_SEAMLESS = 0.88;
+const DETAIL_ALPHA_FRAMED = 0.42;
+/** Wie stark Tiefe und Relief ueber den Kacheln nachgezogen werden. */
+const DEPTH_SHADE = 0.62;
+const RELIEF_SHADE = 1.6;
 /** Aufloesung der vorgebackenen Strassenkachel. */
 const ROAD_PX = 32;
 /** 96 Chunks entsprechen rund 96 MiB Canvas-Pixeln statt ueber 500 MiB. */
@@ -108,13 +114,29 @@ const RELIEF_MAX = 22;
  * Einstellung. Das Grafikpaket hat zum Beispiel keinen Felsboden - dafuer
  * traegt der Erdboden am besten.
  */
+/**
+ * Kacheln, die sich nahtlos fortsetzen (Satz v2).
+ *
+ * Fuer sie faellt der Randbeschnitt weg - sie haben keinen gemalten
+ * Rahmen - und die Detailebene darf viel kraeftiger aufgetragen werden.
+ * Die alten Kacheln (Strasse, Schnee) brauchen beides weiterhin.
+ */
+const SEAMLESS: ReadonlySet<TerrainSprite> = new Set<TerrainSprite>([
+  'grass', 'sand', 'water', 'dirt', 'forest_ground', 'rock',
+]);
+
 const TILE_SPRITE: Record<Tile, TerrainSprite> = {
   [Tile.Water]: 'water',
   [Tile.Sand]: 'sand',
   [Tile.Grass]: 'grass',
   [Tile.Forest]: 'forest_ground',
-  [Tile.Stone]: 'dirt',
-  [Tile.Mountain]: 'snow',
+  [Tile.Stone]: 'rock',
+  // Berg und Fels teilen sich die Felskachel. Unterschieden werden sie
+  // ueber die Reliefebene: hoeheres Gelaende wird heller nachgezogen, ein
+  // Gipfel hebt sich damit von der Felsflanke ab. Eine eigene Schneekachel
+  // gab es zwar, sie passte aber weder zur Hoehe dieser Berge noch zum
+  // Rest des Satzes.
+  [Tile.Mountain]: 'rock',
 };
 
 /** Was die Bauvorschau zeichnen soll. */
@@ -125,6 +147,15 @@ export interface BuildPreview {
   valid: boolean;
   snapped: boolean;
   image: HTMLImageElement | null;
+}
+
+/** Wie ein Hafen zum Wasser steht. */
+interface HarborFacing {
+  /** Steg nach Osten statt nach Westen/Sueden. */
+  mirrored: boolean;
+  /** Versatz aus der Grundflaeche heraus Richtung Wasser, in Kacheln. */
+  shiftX: number;
+  shiftY: number;
 }
 
 interface Ghost {
@@ -164,8 +195,8 @@ export class Renderer {
    * beim Zoomen nicht bei jedem Zwischenwert neu gebacken wird.
    */
   private scaledSprites = new Map<string, HTMLCanvasElement>();
-  /** Wasserrichtung je Hafen - haengt nur am Gelaende. */
-  private waterDirs = new Map<number, [number, number]>();
+  /** Ausrichtung je Hafen - haengt nur am Gelaende. */
+  private harborFacings = new Map<number, HarborFacing>();
   /** Positionen des vorherigen Ticks, fuer weiche Traegerbewegung. */
   private ghosts = new Map<number, Ghost>();
   private textureSeed: number;
@@ -221,9 +252,21 @@ export class Renderer {
     return el;
   }
 
-  /** Quellzuschnitt und Skalierung einer Terrainvariante, einmalig. */
-  private detailTile(image: HTMLImageElement, size = TERRAIN_PX): HTMLCanvasElement {
-    const key = image.src + '@' + size;
+  /**
+   * Quellzuschnitt und Skalierung einer Terrainvariante, einmalig.
+   *
+   * crop nur fuer die alten Kacheln: die Atlasvorlage hat einen gemalten
+   * Rahmen um jede Kachel, der ohne Beschnitt ein sichtbares Gitter
+   * ergibt. Die nahtlosen v2-Kacheln haben keinen - dort wuerde der
+   * Beschnitt die Nahtlosigkeit zerstoeren, weil genau die Randpixel
+   * wegfielen, die auf den Nachbarn passen.
+   */
+  private detailTile(
+    image: HTMLImageElement,
+    size = TERRAIN_PX,
+    crop = true,
+  ): HTMLCanvasElement {
+    const key = image.src + '@' + size + (crop ? '' : 'n');
     const cached = this.detailTiles.get(key);
     if (cached) return cached;
 
@@ -233,17 +276,13 @@ export class Renderer {
     const g = baked.getContext('2d');
     if (!g) throw new Error('Detail-Canvas nicht verfuegbar');
     g.imageSmoothingEnabled = true;
-    // Die Atlasvorlage hat einen gemalten Rahmen/Schatten um jede Kachel.
-    // Nur der innere Bereich wird uebernommen, sonst entstuende ein
-    // sichtbares Schachbrettgitter.
-    const crop = Math.max(
-      1,
-      Math.round(Math.min(image.naturalWidth, image.naturalHeight) * 0.08),
-    );
+    const inset = crop
+      ? Math.max(1, Math.round(Math.min(image.naturalWidth, image.naturalHeight) * 0.08))
+      : 0;
     g.drawImage(
       image,
-      crop, crop,
-      image.naturalWidth - crop * 2, image.naturalHeight - crop * 2,
+      inset, inset,
+      image.naturalWidth - inset * 2, image.naturalHeight - inset * 2,
       0, 0, size, size,
     );
     this.detailTiles.set(key, baked);
@@ -349,6 +388,12 @@ export class Renderer {
     const overrides = this.world.state.terrainOverride;
     const img = g.createImageData(CHUNK_SIZE, CHUNK_SIZE);
     const data = img.data;
+    // Zweite Ebene fuer Tiefe und Relief, die ueber die Bodenkacheln
+    // gelegt wird. Ohne sie waere das Meer ueberall gleich blau und das
+    // Gelaende flach: die Grundfarbe darunter ist bei nahtlosen Kacheln
+    // fast vollstaendig verdeckt.
+    const shadeImg = g.createImageData(CHUNK_SIZE, CHUNK_SIZE);
+    const shadeData = shadeImg.data;
     const ox = cx << CHUNK_BITS;
     const oy = cy << CHUNK_BITS;
 
@@ -389,11 +434,17 @@ export class Renderer {
         let g2: number;
         let b: number;
 
+        const p = idx << 2;
         if (tile === Tile.Water) {
           const d = waterDepth(h << HEIGHT_SHIFT) / 65536;
           r = WATER_SHALLOW[0] + (WATER_DEEP[0] - WATER_SHALLOW[0]) * d;
           g2 = WATER_SHALLOW[1] + (WATER_DEEP[1] - WATER_SHALLOW[1]) * d;
           b = WATER_SHALLOW[2] + (WATER_DEEP[2] - WATER_SHALLOW[2]) * d;
+          // Tiefes Wasser als dunkler Schleier ueber der Wellentextur.
+          shadeData[p] = WATER_DEEP[0];
+          shadeData[p + 1] = WATER_DEEP[1];
+          shadeData[p + 2] = WATER_DEEP[2];
+          shadeData[p + 3] = clamp255(d * 255 * DEPTH_SHADE);
         } else {
           // Hoeheres Gelaende heller, Senken dunkler.
           const rel = (h - RELIEF_REF) * RELIEF_GAIN;
@@ -402,9 +453,14 @@ export class Renderer {
           r = rgb[0] + shade;
           g2 = rgb[1] + shade;
           b = rgb[2] + shade;
+          // Dasselbe Relief als Aufhellung bzw. Abdunklung obendrueber.
+          const light = shade >= 0 ? 255 : 0;
+          shadeData[p] = light;
+          shadeData[p + 1] = light;
+          shadeData[p + 2] = light;
+          shadeData[p + 3] = clamp255(Math.abs(shade) * RELIEF_SHADE);
         }
 
-        const p = idx << 2;
         data[p] = clamp255(r + jr);
         data[p + 1] = clamp255(g2 + jg);
         data[p + 2] = clamp255(b + jb);
@@ -422,20 +478,25 @@ export class Renderer {
     g.imageSmoothingEnabled = false;
     g.drawImage(base, 0, 0, el.width, el.height);
 
-    // Die AI-Vorlagen haben keine nahtlosen Kanten. Als halbtransparente
-    // Detailebene ueber der prozeduralen Grundfarbe wirken sie organisch,
-    // ohne Kontinentform und Tiefenschattierung zu ueberdecken.
-    g.globalAlpha = 0.42;
+    // Die Bodenkacheln liegen als Detailebene ueber der prozeduralen
+    // Grundfarbe. Deckend waeren sie nicht: die Grundfarbe traegt
+    // Kontinentform und Tiefenschattierung, die sonst verschwaenden.
+    //
+    // Wie stark, haengt an der Kachel. Die alten Vorlagen haben sichtbare
+    // Kanten und muessen blass bleiben, sonst zeichnet sich ein Gitter
+    // ab; die nahtlosen v2-Kacheln vertragen fast volle Deckung - genau
+    // daher kommt der Sprung in der Bodenqualitaet.
     g.imageSmoothingEnabled = false;
     for (let ly = 0; ly < CHUNK_SIZE; ly++) {
       for (let lx = 0; lx < CHUNK_SIZE; lx++) {
         const blend = this.blendSprite(tiles, lx, ly, ox, oy);
-        const variants = blend
-          ? this.assets.terrain[blend]
-          : this.terrainImages(tiles[(ly << CHUNK_BITS) | lx] as Tile);
+        const sprite = blend ?? TILE_SPRITE[tiles[(ly << CHUNK_BITS) | lx] as Tile];
+        const variants = this.assets.terrain[sprite];
         if (variants.length === 0) continue;
+        const seamless = SEAMLESS.has(sprite);
+        g.globalAlpha = seamless ? DETAIL_ALPHA_SEAMLESS : DETAIL_ALPHA_FRAMED;
         const hash = hash2i(this.textureSeed, ox + lx, oy + ly) >>> 0;
-        const tile = this.detailTile(variants[hash % variants.length]);
+        const tile = this.detailTile(variants[hash % variants.length], TERRAIN_PX, !seamless);
         // Zusaetzlich spiegeln und drehen. Aus sechs Grasvarianten werden
         // so 48 sichtbar verschiedene Kacheln - ohne eine einzige neue
         // Grafik. Ohne das wiederholt sich der Boden erkennbar, gerade auf
@@ -454,11 +515,21 @@ export class Renderer {
       }
     }
     g.globalAlpha = 1;
-    return el;
-  }
 
-  private terrainImages(tile: Tile): HTMLImageElement[] {
-    return this.assets.terrain[TILE_SPRITE[tile]];
+    // Tiefe und Relief zuletzt, ueber die Kacheln. Weichgezeichnet
+    // hochskaliert, damit daraus ein Verlauf wird und kein zweites
+    // Kachelraster.
+    const shade = document.createElement('canvas');
+    shade.width = CHUNK_SIZE;
+    shade.height = CHUNK_SIZE;
+    const shadeCtx = shade.getContext('2d');
+    if (!shadeCtx) throw new Error('Schatten-Canvas nicht verfuegbar');
+    shadeCtx.putImageData(shadeImg, 0, 0);
+    g.imageSmoothingEnabled = true;
+    g.drawImage(shade, 0, 0, el.width, el.height);
+    g.imageSmoothingEnabled = false;
+
+    return el;
   }
 
   /**
@@ -921,33 +992,45 @@ export class Renderer {
    * dass der Steg die Uferlinie tatsaechlich beruehrt statt davor zu enden.
    */
   private drawHarbor(image: HTMLImageElement, b: Building, foot: number): void {
-    const [ox, oy] = this.waterDirection(b, foot);
+    const f = this.harborFacing(b, foot);
     this.drawOnFootprint(
       image,
-      b.x + ox * HARBOR_DOCK_SHIFT,
-      b.y + oy * HARBOR_DOCK_SHIFT,
+      b.x + f.shiftX,
+      b.y + f.shiftY,
       foot,
-      ox > 0,
+      f.mirrored,
       BUILDING_SPECS[b.type].spriteScale,
     );
   }
 
   /**
-   * Grobe Richtung des naechsten Wassers, als Einheitsvektor auf den Achsen.
+   * Wie der Hafen zum Wasser steht: wohin er rueckt und wie herum sein
+   * Steg zeigt.
    *
-   * Gemittelt ueber alle Wasserkacheln im Umkreis - eine einzelne Kachel
-   * (etwa eine Flussbiegung hinter dem Haus) soll den Hafen nicht
-   * verdrehen. Das Ergebnis haengt nur am Gelaende und wird deshalb pro
-   * Gebaeude gemerkt.
+   * Beides ist nicht dasselbe, und der Grund liegt im Sprite. Steg, Boot
+   * und ein Stueck Wasser sind vorne LINKS eingebrannt. Spiegeln bedient
+   * damit Wasser im Osten, ungespiegelt Wasser im Westen oder Sueden -
+   * aber fuer Wasser im NORDEN gibt es keine Darstellung: drehen wuerde
+   * das Dach auf den Kopf stellen. Bis es gedrehte Hafensprites gibt,
+   * wird der Steg deshalb nur nach Sueden, Osten oder Westen gerichtet.
+   * An einer Nordkueste zeigt er dann laengs am Ufer entlang statt vom
+   * Land weg - deutlich unauffaelliger als ein eingebranntes Stueck
+   * Wasser mitten auf der Wiese.
+   *
+   * Der Versatz folgt weiterhin dem echten Schwerpunkt des Wassers, also
+   * auch nach Norden. Das Ergebnis haengt nur am Gelaende und wird
+   * deshalb pro Gebaeude gemerkt.
    */
-  private waterDirection(b: Building, foot: number): [number, number] {
-    const cached = this.waterDirs.get(b.id);
+  private harborFacing(b: Building, foot: number): HarborFacing {
+    const cached = this.harborFacings.get(b.id);
     if (cached) return cached;
 
     const cx = b.x + foot / 2 - 0.5;
     const cy = b.y + foot / 2 - 0.5;
     let sx = 0;
     let sy = 0;
+    // Gewicht je Himmelsrichtung, Reihenfolge wie NEIGHBORS (N, O, S, W).
+    const side = [0, 0, 0, 0];
     for (let y = b.y - HARBOR_SCAN; y < b.y + foot + HARBOR_SCAN; y++) {
       for (let x = b.x - HARBOR_SCAN; x < b.x + foot + HARBOR_SCAN; x++) {
         if (getTile(this.world, x, y) !== Tile.Water) continue;
@@ -957,14 +1040,28 @@ export class Renderer {
         const w = 1 / (1 + dx * dx + dy * dy);
         sx += dx * w;
         sy += dy * w;
+        if (dx > 0) side[1] += dx * w;
+        if (dx < 0) side[3] -= dx * w;
+        if (dy > 0) side[2] += dy * w;
+        if (dy < 0) side[0] -= dy * w;
       }
     }
 
-    const dir: [number, number] = Math.abs(sx) >= Math.abs(sy)
-      ? [Math.sign(sx) || -1, 0]
-      : [0, Math.sign(sy) || 1];
-    this.waterDirs.set(b.id, dir);
-    return dir;
+    // Nur Sueden, Osten und Westen kommen als Blickrichtung in Frage.
+    // Bei Gleichstand gewinnt der kleinere Index - sonst haengt das Bild
+    // an Rundungsfehlern und flackert beim Neuzeichnen.
+    let best = 2;
+    for (const d of [1, 3]) if (side[d] > side[best]) best = d;
+
+    const norm = Math.hypot(sx, sy) || 1;
+    const facing: HarborFacing = {
+      // Gespiegelt genau dann, wenn der Steg nach Osten zeigen soll.
+      mirrored: best === 1,
+      shiftX: (sx / norm) * HARBOR_DOCK_SHIFT,
+      shiftY: (sy / norm) * HARBOR_DOCK_SHIFT,
+    };
+    this.harborFacings.set(b.id, facing);
+    return facing;
   }
 
   private drawBuilding(b: Building): void {
