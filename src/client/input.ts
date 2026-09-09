@@ -16,6 +16,11 @@ export const Mode = {
   Woodcutter: 'woodcutter',
   Sawmill: 'sawmill',
   Quarry: 'quarry',
+  House: 'house',
+  FisherHut: 'fisherhut',
+  Farm: 'farm',
+  Mill: 'mill',
+  Bakery: 'bakery',
   Depot: 'depot',
   Storehouse: 'storehouse',
   SmallHarbor: 'smallharbor',
@@ -50,6 +55,13 @@ export const MODES: readonly ModeEntry[] = [
   { mode: Mode.Woodcutter, key: '3', label: 'Holzfaeller', group: ModeGroup.Building },
   { mode: Mode.Sawmill, key: '4', label: 'Saegewerk', group: ModeGroup.Building },
   { mode: Mode.Quarry, key: '5', label: 'Steinbruch', group: ModeGroup.Building },
+  // Nahrungskette. Das Wohnhaus steht voran: es ist der Grund, warum es
+  // die uebrigen ueberhaupt gibt.
+  { mode: Mode.House, key: 'h', label: 'Wohnhaus', group: ModeGroup.Building },
+  { mode: Mode.FisherHut, key: 'f', label: 'Fischerhuette', group: ModeGroup.Building },
+  { mode: Mode.Farm, key: 'g', label: 'Getreidefeld', group: ModeGroup.Building },
+  { mode: Mode.Mill, key: 'm', label: 'Muehle', group: ModeGroup.Building },
+  { mode: Mode.Bakery, key: 'b', label: 'Baeckerei', group: ModeGroup.Building },
   // Die Vorstufe steht jeweils VOR ihrer Ausbaustufe - das Baumenue liest
   // sich damit von guenstig nach teuer.
   { mode: Mode.Depot, key: '6', label: 'Umschlagplatz', group: ModeGroup.Building },
@@ -64,6 +76,11 @@ export const BUILD_TYPE: Partial<Record<Mode, BuildingType>> = {
   [Mode.Woodcutter]: BuildingType.Woodcutter,
   [Mode.Sawmill]: BuildingType.Sawmill,
   [Mode.Quarry]: BuildingType.Quarry,
+  [Mode.House]: BuildingType.House,
+  [Mode.FisherHut]: BuildingType.FisherHut,
+  [Mode.Farm]: BuildingType.Farm,
+  [Mode.Mill]: BuildingType.Mill,
+  [Mode.Bakery]: BuildingType.Bakery,
   [Mode.Depot]: BuildingType.Depot,
   [Mode.Storehouse]: BuildingType.Storehouse,
   [Mode.SmallHarbor]: BuildingType.SmallHarbor,

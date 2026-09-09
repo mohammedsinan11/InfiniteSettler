@@ -6,15 +6,36 @@ export const Good = {
   Plank: 1,
   Fish: 2,
   Stone: 3,
+  Grain: 4,
+  Flour: 5,
+  Bread: 6,
 } as const;
 export type Good = (typeof Good)[keyof typeof Good];
 
-export const GOOD_COUNT = 4;
+export const GOOD_COUNT = 7;
 export const GOOD_NAMES: Record<Good, string> = {
   [Good.Wood]: 'Holz',
   [Good.Plank]: 'Bretter',
   [Good.Fish]: 'Fisch',
   [Good.Stone]: 'Stein',
+  [Good.Grain]: 'Getreide',
+  [Good.Flour]: 'Mehl',
+  [Good.Bread]: 'Brot',
+};
+
+/**
+ * Was ein Wohnhaus isst.
+ *
+ * Reihenfolge ist Vorrang: Brot haelt laenger vor als Fisch, wird also
+ * zuerst gegessen. Ohne Vorrang lieferten Traeger Brot an, und das Haus
+ * verzehrte trotzdem den Fisch daneben.
+ */
+export const FOODS: readonly Good[] = [Good.Bread, Good.Fish];
+
+/** Wie lange eine Mahlzeit vorhaelt, in Ticks. Bei 20 Hz sind 400 = 20 s. */
+export const FOOD_TICKS: Partial<Record<Good, number>> = {
+  [Good.Bread]: 900,
+  [Good.Fish]: 400,
 };
 
 /** Baukosten als Warenliste, Index = Good. */
@@ -36,6 +57,11 @@ export const BuildingType = {
   // logischen Platz: die Zahl steht so in jedem gespeicherten Spielstand.
   Depot: 5,
   SmallHarbor: 6,
+  House: 7,
+  FisherHut: 8,
+  Farm: 9,
+  Mill: 10,
+  Bakery: 11,
 } as const;
 export type BuildingType = (typeof BuildingType)[keyof typeof BuildingType];
 
@@ -130,6 +156,22 @@ export interface BuildingSpec {
    * ueberall auf 1.
    */
   readonly spriteScale: number;
+  /**
+   * Wieviele Siedler hier wohnen, solange das Haus Nahrung hat.
+   *
+   * Bewusst kein eigenes Zustandsfeld: die Einwohnerzahl ergibt sich aus
+   * "Haus versorgt ja/nein" und laesst sich damit nicht auseinander-
+   * laufen. Ein Haus ohne Nahrung steht leer.
+   */
+  readonly settlers: number;
+  /**
+   * Braucht dieses Gebaeude einen freien Siedler, um zu arbeiten?
+   *
+   * Das ist der Hebel, ueber den Nahrung die ganze Wirtschaft steuert:
+   * ohne Bevoelkerung laeuft keine Produktion, und Bevoelkerung gibt es
+   * nur mit Nahrung.
+   */
+  readonly needsWorker: boolean;
   /** Ausbaustufe, oder -1. */
   readonly upgradesTo: BuildingType | -1;
   /**
@@ -161,6 +203,8 @@ export const BUILDING_SPECS: Record<BuildingType, BuildingSpec> = {
     carriers: 0,
     ships: 0,
     isPort: false,
+    settlers: 0,
+    needsWorker: true,
     spriteScale: 1,
     upgradesTo: -1,
     upgradeCost: cost({}),
@@ -183,6 +227,8 @@ export const BUILDING_SPECS: Record<BuildingType, BuildingSpec> = {
     carriers: 0,
     ships: 0,
     isPort: false,
+    settlers: 0,
+    needsWorker: true,
     spriteScale: 1,
     upgradesTo: -1,
     upgradeCost: cost({}),
@@ -203,6 +249,8 @@ export const BUILDING_SPECS: Record<BuildingType, BuildingSpec> = {
     carriers: 4,
     ships: 0,
     isPort: false,
+    settlers: 0,
+    needsWorker: false,
     spriteScale: 1,
     upgradesTo: -1,
     upgradeCost: cost({}),
@@ -225,6 +273,8 @@ export const BUILDING_SPECS: Record<BuildingType, BuildingSpec> = {
     carriers: 0,
     ships: 0,
     isPort: false,
+    settlers: 0,
+    needsWorker: true,
     spriteScale: 1,
     upgradesTo: -1,
     upgradeCost: cost({}),
@@ -232,16 +282,15 @@ export const BUILDING_SPECS: Record<BuildingType, BuildingSpec> = {
   [BuildingType.Harbor]: {
     name: 'Hafen',
     cost: cost({ [Good.Plank]: 3, [Good.Stone]: 2 }),
+    // Der Hafen fischt nicht mehr selbst - das macht die Fischerhuette.
+    // Ein Umschlagplatz, der nebenbei Nahrung erzeugt, nahm der
+    // Nahrungskette ihren Sinn.
     consumes: -1,
-    produces: Good.Fish,
-    // Langsamer als der Holzfaeller: der Hafen versiegt nie, dafuer
-    // liefert er traeger.
-    workTicks: 90,
-    outputCap: 4,
-    harvestTile: Tile.Water,
-    // Kleiner Radius: der Hafen soll wirklich am Wasser stehen muessen und
-    // nicht ein paar Kacheln landeinwaerts noch Fisch finden.
-    harvestRadius: 3,
+    produces: -1,
+    workTicks: 0,
+    outputCap: 0,
+    harvestTile: -1,
+    harvestRadius: 0,
     harvestConsumes: false,
     footprint: 2,
     placement: Placement.Coast,
@@ -253,6 +302,8 @@ export const BUILDING_SPECS: Record<BuildingType, BuildingSpec> = {
     // Hafen, der nur eines unterhaelt.
     ships: 2,
     isPort: true,
+    settlers: 0,
+    needsWorker: false,
     spriteScale: 1,
     upgradesTo: -1,
     upgradeCost: cost({}),
@@ -286,6 +337,8 @@ export const BUILDING_SPECS: Record<BuildingType, BuildingSpec> = {
     carriers: 2,
     ships: 0,
     isPort: false,
+    settlers: 0,
+    needsWorker: false,
     spriteScale: 1,
     upgradesTo: BuildingType.Storehouse,
     upgradeCost: cost({ [Good.Plank]: 3, [Good.Stone]: 2 }),
@@ -294,12 +347,11 @@ export const BUILDING_SPECS: Record<BuildingType, BuildingSpec> = {
     name: 'Kleiner Hafen',
     cost: cost({ [Good.Wood]: 5 }),
     consumes: -1,
-    produces: Good.Fish,
-    // Deutlich traeger als der grosse Hafen.
-    workTicks: 140,
-    outputCap: 3,
-    harvestTile: Tile.Water,
-    harvestRadius: 2,
+    produces: -1,
+    workTicks: 0,
+    outputCap: 0,
+    harvestTile: -1,
+    harvestRadius: 0,
     harvestConsumes: false,
     footprint: 2,
     placement: Placement.Coast,
@@ -307,11 +359,148 @@ export const BUILDING_SPECS: Record<BuildingType, BuildingSpec> = {
     carriers: 2,
     ships: 1,
     isPort: true,
+    settlers: 0,
+    needsWorker: false,
     spriteScale: 1,
     upgradesTo: BuildingType.Harbor,
     upgradeCost: cost({ [Good.Plank]: 3, [Good.Stone]: 2 }),
   },
+
+  // --- Bevoelkerung und Nahrung ----------------------------------------
+  //
+  // Das Wohnhaus ist der einzige Verbraucher der Kette und damit der
+  // Grund, warum ueberhaupt produziert wird. Es liefert Siedler, Siedler
+  // betreiben die Produktion, Produktion ernaehrt die Siedler.
+  [BuildingType.House]: {
+    name: 'Wohnhaus',
+    cost: cost({ [Good.Wood]: 2, [Good.Plank]: 3 }),
+    // Verbraucht Nahrung, aber nicht ueber consumes: das laeuft ueber den
+    // eigenen Mahlzeitentakt in stepHouses, nicht ueber die Produktion.
+    consumes: -1,
+    produces: -1,
+    workTicks: 0,
+    outputCap: 0,
+    harvestTile: -1,
+    harvestRadius: 0,
+    harvestConsumes: false,
+    footprint: 2,
+    placement: Placement.Land,
+    isSink: false,
+    carriers: 0,
+    ships: 0,
+    isPort: false,
+    settlers: 4,
+    // Ein Haus arbeitet nicht, es wohnt.
+    needsWorker: false,
+    spriteScale: 1,
+    upgradesTo: -1,
+    upgradeCost: cost({}),
+  },
+  [BuildingType.FisherHut]: {
+    name: 'Fischerhuette',
+    // Nur Holz: Nahrung muss von Anfang an erreichbar sein, sonst gaebe
+    // es ohne Bevoelkerung keine Produktion und ohne Produktion keine
+    // Bevoelkerung.
+    cost: cost({ [Good.Wood]: 3 }),
+    consumes: -1,
+    produces: Good.Fish,
+    workTicks: 90,
+    outputCap: 4,
+    harvestTile: Tile.Water,
+    // Kleiner Radius: die Huette soll wirklich am Wasser stehen muessen.
+    harvestRadius: 3,
+    // Fisch ist erneuerbar, die Wasserkachel bleibt.
+    harvestConsumes: false,
+    footprint: 2,
+    placement: Placement.Coast,
+    isSink: false,
+    carriers: 0,
+    ships: 0,
+    isPort: false,
+    settlers: 0,
+    needsWorker: true,
+    spriteScale: 1,
+    upgradesTo: -1,
+    upgradeCost: cost({}),
+  },
+  [BuildingType.Farm]: {
+    name: 'Getreidefeld',
+    cost: cost({ [Good.Wood]: 2, [Good.Plank]: 1 }),
+    consumes: -1,
+    produces: Good.Grain,
+    // Traeger als der Fischer, dafuer nicht ans Wasser gebunden.
+    workTicks: 120,
+    outputCap: 4,
+    harvestTile: -1,
+    harvestRadius: 0,
+    harvestConsumes: false,
+    footprint: 2,
+    placement: Placement.Land,
+    isSink: false,
+    carriers: 0,
+    ships: 0,
+    isPort: false,
+    settlers: 0,
+    needsWorker: true,
+    spriteScale: 1,
+    upgradesTo: -1,
+    upgradeCost: cost({}),
+  },
+  [BuildingType.Mill]: {
+    name: 'Muehle',
+    cost: cost({ [Good.Wood]: 2, [Good.Plank]: 2 }),
+    consumes: Good.Grain,
+    produces: Good.Flour,
+    workTicks: 60,
+    outputCap: 4,
+    harvestTile: -1,
+    harvestRadius: 0,
+    harvestConsumes: false,
+    footprint: 2,
+    placement: Placement.Land,
+    isSink: false,
+    carriers: 0,
+    ships: 0,
+    isPort: false,
+    settlers: 0,
+    needsWorker: true,
+    spriteScale: 1,
+    upgradesTo: -1,
+    upgradeCost: cost({}),
+  },
+  [BuildingType.Bakery]: {
+    name: 'Baeckerei',
+    cost: cost({ [Good.Plank]: 3, [Good.Stone]: 2 }),
+    consumes: Good.Flour,
+    produces: Good.Bread,
+    workTicks: 60,
+    outputCap: 4,
+    harvestTile: -1,
+    harvestRadius: 0,
+    harvestConsumes: false,
+    footprint: 2,
+    placement: Placement.Land,
+    isSink: false,
+    carriers: 0,
+    ships: 0,
+    isPort: false,
+    settlers: 0,
+    needsWorker: true,
+    spriteScale: 1,
+    upgradesTo: -1,
+    upgradeCost: cost({}),
+  },
 };
+
+/**
+ * Siedler, die es immer gibt - die Gruendergruppe.
+ *
+ * Ohne sie waere der Start eine Sackgasse: Produktion braucht Siedler,
+ * Siedler brauchen ein Haus, ein Haus braucht Bretter, und Bretter kommen
+ * aus einer Produktion. Drei reichen fuer Holzfaeller, Saegewerk und eine
+ * Fischerhuette oder ein Feld.
+ */
+export const BASE_SETTLERS = 3;
 
 export interface Building {
   id: number;

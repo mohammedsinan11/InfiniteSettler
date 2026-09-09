@@ -90,29 +90,38 @@ describe('Steinbruch', () => {
   });
 });
 
-describe('Hafen', () => {
+describe('Fischerhuette', () => {
   it('fischt, ohne das Wasser aufzubrauchen', () => {
     const world = coastWorld();
     applyCommand(world, { t: 'build', bt: BuildingType.Storehouse, x: 0, y: 0 });
-    applyCommand(world, { t: 'build', bt: BuildingType.Harbor, x: 8, y: 0 });
+    applyCommand(world, { t: 'build', bt: BuildingType.FisherHut, x: 8, y: 0 });
     for (let x = 2; x <= 7; x++) applyCommand(world, { t: 'road', x, y: 0 });
 
     const waterBefore = countWater(world);
     for (let i = 0; i < 900; i++) step(world);
 
     expect(totalStock(world)[Good.Fish], 'Fisch im Lager').toBeGreaterThan(0);
-    // Der Holzfaeller frisst seinen Wald auf, der Hafen darf das nicht.
+    // Der Holzfaeller frisst seinen Wald auf, der Fischer darf das nicht.
     expect(countWater(world)).toBe(waterBefore);
   });
 
   it('versiegt nicht - anders als der Holzfaeller', () => {
     const world = coastWorld();
+    applyCommand(world, { t: 'build', bt: BuildingType.FisherHut, x: 8, y: 0 });
+    const hut = [...world.state.buildings.values()][0];
+    for (let i = 0; i < 2000; i++) step(world);
+    // Erzeuger legen ihren Ertrag in den Ausgangspuffer, nicht in den
+    // Bestand - dort holen ihn die Traeger ab.
+    expect(hut.output[Good.Fish]).toBeGreaterThan(0);
+  });
+
+  it('der Hafen fischt NICHT mehr - das ist Sache der Huette', () => {
+    const world = coastWorld();
     applyCommand(world, { t: 'build', bt: BuildingType.Harbor, x: 8, y: 0 });
     const harbor = [...world.state.buildings.values()][0];
     for (let i = 0; i < 2000; i++) step(world);
-    // Der Hafen ist zugleich Umschlagplatz - sein Fang landet im Bestand,
-    // nicht im Ausgangspuffer.
-    expect(harbor.input[Good.Fish]).toBeGreaterThan(0);
+    expect(harbor.input[Good.Fish]).toBe(0);
+    expect(harbor.output[Good.Fish]).toBe(0);
   });
 });
 

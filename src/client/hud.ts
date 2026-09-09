@@ -34,6 +34,9 @@ export interface HudData {
   buildings: number;
   carriers: number;
   stock: StockSummary;
+  /** Siedler insgesamt und wieviele davon gerade gebraucht werden. */
+  population: number;
+  workersNeeded: number;
   /** Welche Bauarten gerade bezahlbar sind - kommt aus der Simulation. */
   affordable: Record<number, boolean>;
   seed: number;
@@ -48,7 +51,19 @@ const GOOD_ICON: Partial<Record<Good, GoodSprite>> = {
   [Good.Plank]: 'plank',
   [Good.Stone]: 'stone',
   [Good.Fish]: 'fish',
+  [Good.Grain]: 'grain',
+  [Good.Flour]: 'flour',
+  [Good.Bread]: 'bread',
 };
+
+/**
+ * Waren, die immer angezeigt werden.
+ *
+ * Die uebrigen erscheinen erst, wenn es sie gibt. Sieben Kacheln von
+ * Anfang an waeren auf dem Handy nicht mehr lesbar, und Mehl anzuzeigen,
+ * bevor eine Muehle steht, hilft niemandem.
+ */
+const CORE_GOODS: readonly Good[] = [Good.Wood, Good.Plank, Good.Stone, Good.Fish];
 
 const NARROW = 720;
 
@@ -230,7 +245,7 @@ export class Hud {
   }
 
   update(d: HudData): void {
-    this.updateResources(d.stock);
+    this.updateResources(d);
     this.updateAffordable(d.affordable);
     this.updateCompass(d);
     if (this.showDetails) this.updateStatus(d);
@@ -284,14 +299,29 @@ export class Hud {
       dist >= 1000 ? `${(dist / 1000).toFixed(1)}k` : `${Math.round(dist)}`;
   }
 
-  private updateResources(s: StockSummary): void {
-    const key = s.stored.join(',') + '|' + s.total.join(',');
+  private updateResources(d: HudData): void {
+    const s = d.stock;
+    const key =
+      s.stored.join(',') + '|' + s.total.join(',') +
+      '|' + d.population + '/' + d.workersNeeded;
     if (key === this.lastResKey) return;
     this.lastResKey = key;
 
-    const cards: string[] = [];
+    // Einwohner zuerst: sie sind die Groesse, an der alles haengt.
+    const short = d.workersNeeded > d.population;
+    const cards: string[] = [
+      `<div class="is-card${short ? ' is-short' : ''}" title="${
+        short
+          ? `Zu wenig Siedler: ${d.workersNeeded} Arbeitsplaetze, nur ${d.population} Siedler. ` +
+            'Die zuletzt gebauten Betriebe stehen still.'
+          : `${d.population} Siedler, ${d.workersNeeded} davon in Arbeit`
+      }"><i class="is-mark is-people"></i>` +
+        `<span class="is-card-n">${d.population}</span>` +
+        `<span class="is-card-sub">/${d.workersNeeded}</span></div>`,
+    ];
     for (let g = 0; g < GOOD_COUNT; g++) {
       const good = g as Good;
+      if (!CORE_GOODS.includes(good) && s.total[g] === 0) continue;
       const bound = s.total[g] - s.stored[g];
       const title =
         `${GOOD_NAMES[good]}: ${s.stored[g]} im Lager, ` +
@@ -439,6 +469,16 @@ function injectStyles(): void {
       image-rendering: pixelated; object-fit: contain;
     }
     i.is-mark { border-radius: 2px; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.45); }
+    /* Siedler: zwei Koepfe als Andeutung, bis es ein Symbol dafuer gibt. */
+    i.is-people {
+      border-radius: 50%; background: #8a6a44;
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,0.45), 6px -3px 0 -3px #8a6a44,
+                  6px -3px 0 -2px rgba(0,0,0,0.35);
+    }
+    /* Zu wenig Siedler: die Kachel meldet sich, sonst sucht man den
+       Grund fuer stehende Betriebe auf der Karte. */
+    .is-card.is-short { background: #f3d9c0; box-shadow: inset 0 0 0 2px #b4522f; }
+    .is-card.is-short .is-card-sub { color: #b4522f; font-weight: 700; }
     .is-card-n { font-size: 15px; font-weight: 700; color: var(--tinte);
                  font-variant-numeric: tabular-nums; }
     .is-card-sub { color: #7a6242; font-size: 11px; }

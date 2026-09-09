@@ -27,7 +27,7 @@ describe('Grafikmanifest', () => {
     for (const [name, list] of groups) {
       expect(new Set(list).size, `${name} enthaelt Doppelte`).toBe(list.length);
     }
-    expect(paths.length).toBe(113);
+    expect(paths.length).toBe(136);
 
     for (const path of paths) {
       const file = new URL(`../src/assets/medieval/${path}`, import.meta.url);
@@ -40,8 +40,13 @@ describe('Grafikmanifest', () => {
 
   it('deckt alle aktuell simulierbaren Gebaeudetypen ab', () => {
     expect(Object.keys(manifest.buildings).sort()).toEqual([
+      'bakery',
       'depot',
+      'farm',
+      'fisher_hut',
       'harbor',
+      'house',
+      'mill',
       'quarry',
       'sawmill',
       'small_harbor',

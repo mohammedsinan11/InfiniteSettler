@@ -27,6 +27,11 @@ export const BUILDING_COLOR: Record<BuildingType, string> = {
   [BuildingType.Quarry]: '#7d7a72',
   [BuildingType.Depot]: '#b487d1',
   [BuildingType.SmallHarbor]: '#6aa8cc',
+  [BuildingType.House]: '#c96b4a',
+  [BuildingType.FisherHut]: '#4f9e8f',
+  [BuildingType.Farm]: '#c9b24a',
+  [BuildingType.Mill]: '#d8cfa8',
+  [BuildingType.Bakery]: '#b07a45',
 };
 
 export const GOOD_COLOR: Record<Good, string> = {
@@ -34,6 +39,9 @@ export const GOOD_COLOR: Record<Good, string> = {
   [Good.Plank]: '#d8a85a',
   [Good.Fish]: '#8fc7d4',
   [Good.Stone]: '#a9a49b',
+  [Good.Grain]: '#d9bf5c',
+  [Good.Flour]: '#efe6d0',
+  [Good.Bread]: '#b9803f',
 };
 
 // Deutlich dunkler als Sand (#c9b884) gewaehlt: eine helle Strasse ist auf

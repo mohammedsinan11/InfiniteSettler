@@ -12,6 +12,7 @@
  */
 
 import { canAfford, canUpgrade } from '../sim/commands';
+import { population, workersNeeded } from '../sim/economy';
 import { parseKey } from '../sim/coords';
 import { hashWorldHex, serialize, deserialize } from '../sim/serialize';
 import {
@@ -320,6 +321,8 @@ function updateHud(): void {
     buildings: world.state.buildings.size,
     carriers: world.state.carriers.size,
     stock: stockSummary(world),
+    population: population(world),
+    workersNeeded: workersNeeded(world),
     affordable: Object.fromEntries(
       Object.values(BuildingType).map((t) => [t, canAfford(world, t)]),
     ),

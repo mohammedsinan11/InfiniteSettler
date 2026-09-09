@@ -35,11 +35,44 @@ Auf dem Handy ist die Zwei-Finger-Geste die einzige Art zu schieben, weil es
 weder rechte Maustaste noch Tastatur gibt. Setzt man den zweiten Finger auf,
 wird ein bereits ausgeloester Bau wieder zurueckgenommen.
 
+## Spielprinzip
+
+Der Kreis, um den sich alles dreht:
+
+> **Wohnhaeuser brauchen Nahrung → versorgte Haeuser stellen Siedler →
+> Siedler betreiben die Betriebe → die Betriebe erzeugen die Nahrung.**
+
+Jeder Betrieb (Holzfaeller, Saegewerk, Steinbruch, Fischerhuette,
+Getreidefeld, Muehle, Baeckerei) braucht **einen Siedler**, um zu
+arbeiten. Gibt es weniger Siedler als Arbeitsplaetze, stehen die
+**zuletzt gebauten** Betriebe still - die Kachel ganz links in der
+Warenleiste zeigt `Siedler/Arbeitsplaetze` und faerbt sich rot, sobald es
+knapp wird.
+
+Siedler kommen aus Wohnhaeusern, und ein Wohnhaus zaehlt nur, solange
+Nahrung darin liegt. Traeger liefern sie an wie jede andere Ware. Es gibt
+zwei Sorten:
+
+| Nahrung | Woher | Haelt vor |
+|---|---|---|
+| Fisch | Fischerhuette am Wasser | 400 Ticks (20 s) |
+| Brot | Getreidefeld → Muehle → Baeckerei | 900 Ticks (45 s) |
+
+Fisch ist der schnelle Einstieg (die Huette kostet nur Holz), Brot der
+lohnende Ausbau: dreimal so lange Wirkung, dafuer drei Gebaeude.
+
+Damit der Start keine Sackgasse ist, gibt es **drei Siedler von Anfang an**
+- die Gruendergruppe. Sie reichen genau fuer Holzfaeller, Saegewerk und
+eine Fischerhuette. Alles darueber hinaus muss erst wohnen.
+
+Der Hafen fischt bewusst **nicht** mehr selbst: ein Umschlagplatz, der
+nebenbei Nahrung erzeugt, haette die ganze Kette ueberfluessig gemacht.
+
 ## Bauen
 
 Gebaeude kosten Waren und stehen sofort - die Kosten werden beim Setzen aus
 den Lagerbestaenden abgebucht. Reicht der Vorrat nicht, ist der Knopf im
-Bau-Overlay ausgegraut. Jedes Gebaeude belegt 3x3 Kacheln.
+Bau-Overlay ausgegraut. Jedes Gebaeude belegt 2x2 Kacheln.
 Zwei Regeln verhindern Sackgassen:
 der **allererste Bau** einer Welt ist geschenkt und - wenn es ein Lager ist -
 mit Startvorrat gefuellt (Holz, Bretter, Stein), und ein **Lager ist

@@ -98,6 +98,36 @@
       "buildings/small_harbor/left.png",
       "buildings/small_harbor/right.png",
       "buildings/small_harbor/up.png"
+    ],
+    "house": [
+      "buildings/house/house_01.png",
+      "buildings/house/house_02.png",
+      "buildings/house/house_03.png",
+      "buildings/house/house_04.png"
+    ],
+    "fisher_hut": [
+      "buildings/fisher_hut/fisher_hut_01.png",
+      "buildings/fisher_hut/fisher_hut_02.png",
+      "buildings/fisher_hut/fisher_hut_03.png",
+      "buildings/fisher_hut/fisher_hut_04.png"
+    ],
+    "farm": [
+      "buildings/farm/farm_01.png",
+      "buildings/farm/farm_02.png",
+      "buildings/farm/farm_03.png",
+      "buildings/farm/farm_04.png"
+    ],
+    "mill": [
+      "buildings/mill/mill_01.png",
+      "buildings/mill/mill_02.png",
+      "buildings/mill/mill_03.png",
+      "buildings/mill/mill_04.png"
+    ],
+    "bakery": [
+      "buildings/bakery/bakery_01.png",
+      "buildings/bakery/bakery_02.png",
+      "buildings/bakery/bakery_03.png",
+      "buildings/bakery/bakery_04.png"
     ]
   },
   "trees": [
@@ -151,6 +181,15 @@
     ],
     "fish": [
       "goods/fish.png"
+    ],
+    "grain": [
+      "goods/grain.png"
+    ],
+    "flour": [
+      "goods/flour.png"
+    ],
+    "bread": [
+      "goods/bread.png"
     ]
   },
   "resources": {

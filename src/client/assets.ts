@@ -128,6 +128,11 @@ export async function loadGameAssets(): Promise<GameAssets> {
     [BuildingType.Quarry]: namedBuildings.quarry ?? [],
     [BuildingType.Depot]: namedBuildings.depot ?? [],
     [BuildingType.SmallHarbor]: namedBuildings.small_harbor ?? [],
+    [BuildingType.House]: namedBuildings.house ?? [],
+    [BuildingType.FisherHut]: namedBuildings.fisher_hut ?? [],
+    [BuildingType.Farm]: namedBuildings.farm ?? [],
+    [BuildingType.Mill]: namedBuildings.mill ?? [],
+    [BuildingType.Bakery]: namedBuildings.bakery ?? [],
   };
   const resources = Object.fromEntries(resourceEntries) as GameAssets['resources'];
   const goods = Object.fromEntries(goodEntries) as GameAssets['goods'];
@@ -192,10 +197,15 @@ export function emptyGameAssets(): GameAssets {
       [BuildingType.Quarry]: [],
       [BuildingType.Depot]: [],
       [BuildingType.SmallHarbor]: [],
+      [BuildingType.House]: [],
+      [BuildingType.FisherHut]: [],
+      [BuildingType.Farm]: [],
+      [BuildingType.Mill]: [],
+      [BuildingType.Bakery]: [],
     },
     trees: [],
     resources: { stone: [], mountain: [] },
-    goods: { wood: [], plank: [], stone: [], fish: [] },
+    goods: { wood: [], plank: [], stone: [], fish: [], grain: [], flour: [], bread: [] },
     scatter: { flowers: [], bushes: [], saplings: [] },
     shore: { cliff: [] },
     carrier: { down: null, left: null, right: null, up: null },

@@ -16,7 +16,10 @@ import { findPath } from './pathfind';
 import { getTile, isSailable, setTile, type World } from './state';
 import { Tile } from './terrain';
 import {
+  BASE_SETTLERS,
   BUILDING_SPECS,
+  FOODS,
+  FOOD_TICKS,
   CARRIER_SPEED,
   SHIP_MIN_GAP,
   SHIP_SPEED,
@@ -30,19 +33,104 @@ import {
 
 /** Wieviel Input ein Verbraucher hoechstens vorhalten will. */
 const INPUT_TARGET = 4;
+/**
+ * Wieviel Nahrung ein Wohnhaus bevorratet.
+ *
+ * Klein gehalten: ein Haus, das zehn Fische hortet, entzieht sie den
+ * anderen Haeusern und laesst die Siedlung ungleichmaessig verhungern.
+ */
+const HOUSE_FOOD_TARGET = 2;
 
 const sortedIds = (m: Map<number, unknown>): number[] =>
   Array.from(m.keys()).sort((a, b) => a - b);
+
+// --- Bevoelkerung ------------------------------------------------------
+
+/**
+ * Wieviele Siedler es gerade gibt.
+ *
+ * Abgeleitet, nicht gespeichert: ein Haus mit Nahrung im Bestand ist
+ * bewohnt, eines ohne steht leer. Damit kann die Einwohnerzahl nicht vom
+ * uebrigen Zustand abweichen - waere sie ein eigenes Feld, muesste sie
+ * bei jedem Bau, Abriss und Ladevorgang mitgefuehrt werden.
+ *
+ * Dazu die Gruendergruppe, die es immer gibt: ohne sie koennte man das
+ * erste Haus nie bauen.
+ */
+export function population(world: World): number {
+  let n = BASE_SETTLERS;
+  for (const b of world.state.buildings.values()) {
+    const spec = BUILDING_SPECS[b.type];
+    if (spec.settlers === 0) continue;
+    if (isFed(b)) n += spec.settlers;
+  }
+  return n;
+}
+
+/**
+ * Wieviele Arbeitsplaetze gerade besetzt werden wollen.
+ *
+ * Nur fuer die Anzeige: liegt der Wert ueber der Einwohnerzahl, stehen
+ * Betriebe still, und das soll man sehen koennen, ohne es auf der Karte
+ * zu suchen.
+ */
+export function workersNeeded(world: World): number {
+  let n = 0;
+  for (const b of world.state.buildings.values()) {
+    if (BUILDING_SPECS[b.type].needsWorker) n++;
+  }
+  return n;
+}
+
+/** Hat das Haus etwas zu essen da? */
+const isFed = (b: Building): boolean => FOODS.some((g) => b.input[g] > 0);
+
+/**
+ * Mahlzeitentakt der Wohnhaeuser.
+ *
+ * progress zaehlt hier die Ticks bis zur naechsten Mahlzeit - dasselbe
+ * Feld wie bei der Produktion, nur andere Bedeutung. Ein Haus ohne
+ * Nahrung wartet einfach weiter; sobald etwas ankommt, isst es sofort.
+ */
+export function stepHouses(world: World): void {
+  const buildings = world.state.buildings;
+  for (const id of sortedIds(buildings)) {
+    const b = buildings.get(id) as Building;
+    if (BUILDING_SPECS[b.type].settlers === 0) continue;
+
+    if (b.progress > 0) {
+      b.progress--;
+      continue;
+    }
+    // Brot zuerst - es haelt laenger vor.
+    for (const good of FOODS) {
+      if (b.input[good] <= 0) continue;
+      b.input[good]--;
+      b.progress = FOOD_TICKS[good] ?? 0;
+      break;
+    }
+  }
+}
 
 // --- Produktion --------------------------------------------------------
 
 export function stepProduction(world: World): void {
   const buildings = world.state.buildings;
+  // Arbeitskraefte werden in Id-Reihenfolge vergeben: das aelteste
+  // Gebaeude bekommt zuerst einen Siedler. Reicht die Bevoelkerung nicht,
+  // stehen die zuletzt gebauten still - nachvollziehbar und ohne
+  // Zufallsentscheidung.
+  let workers = population(world);
+
   for (const id of sortedIds(buildings)) {
     const b = buildings.get(id) as Building;
     const spec = BUILDING_SPECS[b.type];
 
     if (spec.produces < 0) continue;
+    if (spec.needsWorker) {
+      if (workers <= 0) continue;
+      workers--;
+    }
 
     if (b.progress < 0) {
       if (b.output[spec.produces] >= spec.outputCap) continue;
@@ -107,6 +195,13 @@ function findHarvest(world: World, b: Building): [number, number] | null {
 function demandFor(b: Building, good: Good): number {
   const spec = BUILDING_SPECS[b.type];
   if (spec.isSink) return 99; // Lager nimmt alles
+  // Ein Wohnhaus nimmt jede Nahrung an, nicht nur eine bestimmte.
+  if (spec.settlers > 0) {
+    if (!FOODS.includes(good)) return 0;
+    let stock = 0;
+    for (const g of FOODS) stock += b.input[g] + b.incoming[g];
+    return HOUSE_FOOD_TARGET - stock;
+  }
   if (spec.consumes !== good) return 0;
   return INPUT_TARGET - b.input[good] - b.incoming[good];
 }
