@@ -597,9 +597,22 @@ export interface Expedition {
   lastRevealY: number;
 }
 
+/** Erster steuerbarer Landkundschafter; spaeter wird daraus eine Einheitengruppe. */
+export interface Scout {
+  x: Fixed;
+  y: Fixed;
+  heading: 0 | 1 | 2 | 3;
+  path: number[];
+  pathIdx: number;
+  exploredSteps: number;
+  lastRevealX: number;
+  lastRevealY: number;
+}
+
 export interface RunState {
   phase: RunPhase;
   expedition: Expedition | null;
+  scout: Scout | null;
   /** Entdeckte Kacheln; wird spaeter auch von Spaehern und Magie genutzt. */
   explored: Set<string>;
   fogEnabled: boolean;

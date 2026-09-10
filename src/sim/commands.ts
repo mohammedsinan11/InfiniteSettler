@@ -19,7 +19,7 @@ import {
 } from './state';
 import { isBuildable } from './terrain';
 import { getTile } from './state';
-import { canBuildInRun, completeLanding, sailTo } from './run';
+import { canBuildInRun, completeLanding, isExplored, sailTo, scoutTo } from './run';
 import {
   BUILDING_SPECS,
   BuildingType,
@@ -36,7 +36,8 @@ export type Command =
   | { t: 'road'; x: number; y: number }
   | { t: 'demolish'; x: number; y: number }
   | { t: 'upgrade'; x: number; y: number }
-  | { t: 'sail'; x: number; y: number };
+  | { t: 'sail'; x: number; y: number }
+  | { t: 'scout'; x: number; y: number };
 
 /**
  * Startausstattung des allerersten Gebaeudes.
@@ -70,6 +71,8 @@ export function applyCommand(world: World, cmd: Command): boolean {
       return doUpgrade(world, cmd.x, cmd.y);
     case 'sail':
       return sailTo(world, cmd.x, cmd.y);
+    case 'scout':
+      return scoutTo(world, cmd.x, cmd.y);
   }
 }
 
@@ -312,6 +315,7 @@ const hasStorehouse = (s: World['state']): boolean => {
 function doRoad(world: World, x: number, y: number): boolean {
   const s = world.state;
   if (s.run.phase === RunPhase.Voyage) return false;
+  if (!isExplored(world, x, y)) return false;
   const key = tileKey(x, y);
   if (s.roads.has(key) || s.buildingAt.has(key)) return false;
   if (!isBuildable(getTile(world, x, y))) return false;

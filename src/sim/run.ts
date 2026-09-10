@@ -11,11 +11,20 @@ import { FP_ONE, isqrt } from './fixed';
 import { findPath } from './pathfind';
 import { getTile, isSailable, type World } from './state';
 import { generateTile, Tile } from './terrain';
-import { BuildingType, RunPhase, SHIP_SPEED, type RunState } from './types';
+import {
+  BUILDING_SPECS,
+  BuildingType,
+  CARRIER_SPEED,
+  RunPhase,
+  SHIP_SPEED,
+  type RunState,
+  type Scout,
+} from './types';
 
 export const EXPEDITION_SUPPLIES = 72;
 export const EXPEDITION_REVEAL_RADIUS = 9;
 export const LANDING_DISTANCE = 5;
+export const SCOUT_REVEAL_RADIUS = 7;
 
 /** Beginnt einen neuen Durchlauf an einer deterministisch gefundenen Kueste. */
 export function beginExpedition(world: World): void {
@@ -32,6 +41,7 @@ export function beginExpedition(world: World): void {
       lastRevealX: x,
       lastRevealY: y,
     },
+    scout: null,
     explored: new Set(),
     fogEnabled: true,
     landing: null,
@@ -59,7 +69,11 @@ export function sailTo(world: World, x: number, y: number): boolean {
 export function stepRun(world: World): void {
   const run = world.state.run;
   const expedition = run.expedition;
-  if (run.phase !== RunPhase.Voyage || !expedition) return;
+  if (run.phase === RunPhase.Settled) {
+    stepScout(world);
+    return;
+  }
+  if (!expedition) return;
 
   let budget = SHIP_SPEED;
   while (budget > 0 && expedition.pathIdx < expedition.path.length / 2) {
@@ -113,7 +127,17 @@ export function canBuildInRun(
   x: number,
   y: number,
 ): boolean {
-  if (world.state.run.phase !== RunPhase.Voyage) return true;
+  const run = world.state.run;
+  if (run.phase !== RunPhase.Voyage) {
+    if (!run.fogEnabled) return true;
+    const footprint = BUILDING_SPECS[type].footprint;
+    for (let dy = 0; dy < footprint; dy++) {
+      for (let dx = 0; dx < footprint; dx++) {
+        if (!run.explored.has(tileKey(x + dx, y + dy))) return false;
+      }
+    }
+    return true;
+  }
   if (type !== BuildingType.Storehouse) return false;
   const expedition = world.state.run.expedition;
   if (!expedition) return false;
@@ -127,11 +151,39 @@ export function completeLanding(world: World, x: number, y: number): void {
   const run = world.state.run;
   run.phase = RunPhase.Settled;
   run.landing = { x, y };
-  run.fogEnabled = false;
+  run.fogEnabled = true;
   if (run.expedition) {
     run.expedition.path = [];
     run.expedition.pathIdx = 0;
   }
+  const [scoutX, scoutY] = findScoutStart(world, x, y);
+  run.scout = {
+    x: (scoutX * FP_ONE) | 0,
+    y: (scoutY * FP_ONE) | 0,
+    heading: 2,
+    path: [],
+    pathIdx: 0,
+    exploredSteps: 0,
+    lastRevealX: scoutX,
+    lastRevealY: scoutY,
+  };
+  revealAround(run, x + 1, y + 1, EXPEDITION_REVEAL_RADIUS + 3);
+  revealAround(run, scoutX, scoutY, SCOUT_REVEAL_RADIUS);
+}
+
+/** Erteilt dem ausgewaehlten Spaehtrupp einen Landweg. */
+export function scoutTo(world: World, x: number, y: number): boolean {
+  const run = world.state.run;
+  const scout = run.scout;
+  if (run.phase !== RunPhase.Settled || !run.fogEnabled || !scout) return false;
+  if (!isScoutPassable(world, x, y)) return false;
+  const sx = Math.round(scout.x / FP_ONE);
+  const sy = Math.round(scout.y / FP_ONE);
+  const path = findPath(world, sx, sy, x, y, isScoutPassable);
+  if (!path) return false;
+  scout.path = path;
+  scout.pathIdx = 0;
+  return true;
 }
 
 export function isExplored(world: World, x: number, y: number): boolean {
@@ -159,6 +211,67 @@ function revealAround(run: RunState, x: number, y: number, radius: number): void
       run.explored.add(tileKey(x + dx, y + dy));
     }
   }
+}
+
+function stepScout(world: World): void {
+  const run = world.state.run;
+  const scout = run.scout;
+  if (!run.fogEnabled || !scout) return;
+  moveScout(scout);
+  const rx = Math.round(scout.x / FP_ONE);
+  const ry = Math.round(scout.y / FP_ONE);
+  if (rx !== scout.lastRevealX || ry !== scout.lastRevealY) {
+    scout.lastRevealX = rx;
+    scout.lastRevealY = ry;
+    revealAround(run, rx, ry, SCOUT_REVEAL_RADIUS);
+  }
+}
+
+function moveScout(scout: Scout): void {
+  let budget = CARRIER_SPEED;
+  while (budget > 0 && scout.pathIdx < scout.path.length / 2) {
+    const tx = scout.path[scout.pathIdx * 2] * FP_ONE;
+    const ty = scout.path[scout.pathIdx * 2 + 1] * FP_ONE;
+    const dx = tx - scout.x;
+    const dy = ty - scout.y;
+    const distance = isqrt(dx * dx + dy * dy);
+    if (distance === 0) {
+      scout.pathIdx++;
+      continue;
+    }
+    scout.heading = dx < 0 ? 3 : dx > 0 ? 1 : dy < 0 ? 0 : 2;
+    if (distance <= budget) {
+      scout.x = tx | 0;
+      scout.y = ty | 0;
+      budget -= distance;
+      scout.pathIdx++;
+      scout.exploredSteps++;
+    } else {
+      if (dx !== 0) scout.x = (scout.x + (dx < 0 ? -budget : budget)) | 0;
+      else scout.y = (scout.y + (dy < 0 ? -budget : budget)) | 0;
+      budget = 0;
+    }
+  }
+  if (scout.pathIdx >= scout.path.length / 2) {
+    scout.path = [];
+    scout.pathIdx = 0;
+  }
+}
+
+const isScoutPassable = (world: World, x: number, y: number): boolean =>
+  getTile(world, x, y) !== Tile.Water;
+
+function findScoutStart(world: World, x: number, y: number): [number, number] {
+  const candidates: Array<[number, number]> = [
+    [x, y + 2], [x + 1, y + 2], [x + 2, y + 1], [x + 2, y],
+    [x, y - 1], [x + 1, y - 1], [x - 1, y], [x - 1, y + 1],
+  ];
+  for (const [tx, ty] of candidates) {
+    if (isScoutPassable(world, tx, ty) && !world.state.buildingAt.has(tileKey(tx, ty))) {
+      return [tx, ty];
+    }
+  }
+  return [x, y];
 }
 
 /** Findet Sand mit direktem Wasseranschluss, ringweise um den Ursprung. */

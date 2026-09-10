@@ -232,6 +232,7 @@ export class Renderer {
   private ghosts = new Map<number, Ghost>();
   /** Das Gruenderschiff hat keine Entity-ID und daher seinen eigenen Geist. */
   private expeditionGhost: Ghost | null = null;
+  private scoutGhost: Ghost | null = null;
   private textureSeed: number;
 
   pendingChunks = 0;
@@ -442,6 +443,7 @@ export class Renderer {
     this.cache.clear();
     this.ghosts.clear();
     this.expeditionGhost = null;
+    this.scoutGhost = null;
   }
 
   /** Vor jedem Sim-Tick aufrufen: aktuelle Positionen werden zum Startpunkt. */
@@ -451,6 +453,8 @@ export class Renderer {
     this.expeditionGhost = expedition
       ? { px: expedition.x / FP_ONE, py: expedition.y / FP_ONE }
       : null;
+    const scout = this.world.state.run.scout;
+    this.scoutGhost = scout ? { px: scout.x / FP_ONE, py: scout.y / FP_ONE } : null;
     for (const sh of this.world.state.ships.values()) {
       const g = this.ghosts.get(sh.id);
       if (g) { g.px = sh.x / FP_ONE; g.py = sh.y / FP_ONE; }
@@ -470,7 +474,7 @@ export class Renderer {
     }
   }
 
-  draw(alpha: number, hover: BuildPreview | null): void {
+  draw(alpha: number, hover: BuildPreview | null, scoutSelected = false): void {
     const { ctx, cam } = this;
     ctx.imageSmoothingEnabled = false;
     ctx.fillStyle = UNLOADED_COLOR;
@@ -481,6 +485,7 @@ export class Renderer {
     this.drawWorldObjects(alpha);
     this.drawExplorationFog();
     this.drawExpedition(alpha);
+    this.drawScout(alpha, scoutSelected);
     if (hover) this.drawPreview(hover);
   }
 
@@ -542,6 +547,40 @@ export class Renderer {
       ctx.fillStyle = '#8a5f31';
       ctx.fillRect(cam.worldToScreenX(drawX) + z * .15,
         cam.worldToScreenY(drawY) + z * .25, z * .7, z * .5);
+    }
+  }
+
+  private drawScout(alpha: number, selected: boolean): void {
+    const scout = this.world.state.run.scout;
+    if (!scout) return;
+    const x = scout.x / FP_ONE;
+    const y = scout.y / FP_ONE;
+    const drawX = this.scoutGhost ? this.scoutGhost.px + (x - this.scoutGhost.px) * alpha : x;
+    const drawY = this.scoutGhost ? this.scoutGhost.py + (y - this.scoutGhost.py) * alpha : y;
+    const { ctx, cam } = this;
+    const z = cam.zoom;
+    const sx = cam.worldToScreenX(drawX + .5);
+    const sy = cam.worldToScreenY(drawY + .86);
+
+    ctx.save();
+    ctx.fillStyle = selected ? 'rgba(235, 199, 105, .28)' : 'rgba(117, 191, 167, .2)';
+    ctx.strokeStyle = selected ? '#e6bd63' : 'rgba(137, 211, 185, .85)';
+    ctx.lineWidth = Math.max(1, z * .07);
+    ctx.beginPath();
+    ctx.ellipse(sx, sy, z * .48, z * .24, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+
+    const image = this.assets.carrier[FACING_NAME[scout.heading]];
+    if (image && z >= 5) {
+      this.drawBottomCentered(image, drawX + .5, drawY + .92, z * 1.08);
+    } else {
+      ctx.fillStyle = '#d5b568';
+      ctx.beginPath();
+      ctx.arc(cam.worldToScreenX(drawX + .5), cam.worldToScreenY(drawY + .55),
+        Math.max(2, z * .2), 0, Math.PI * 2);
+      ctx.fill();
     }
   }
 

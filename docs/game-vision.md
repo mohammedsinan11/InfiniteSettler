@@ -29,10 +29,13 @@ nicht erforderlich.
 - Erkundungsnebel waehrend der Suche
 - freie, aber bindende Landungsentscheidung durch das erste Lager
 - danach nahtloser Uebergang in die bestehende Siedlungssimulation
+- permanenter Erkundungsnebel und ein direkt steuerbarer Spaehtrupp an Land
 
-Der Nebel wird in dieser Scheibe nach der Landung aufgehoben. Als naechster
-Ausbau bleibt er bestehen und wird durch Spaeher, Strassen, Wachtuerme und
-Magie zur eigentlichen RTS-Erkundung.
+Der Nebel bleibt nach der Landung bestehen. Der erste Spaehtrupp deckt neue
+Landstriche auf; Gebaeude und Strassen duerfen nur auf erkundetem Boden
+entstehen. Alte Version-2-Siedlungen ohne Run-Erkundung bleiben aus
+Kompatibilitaetsgruenden vollstaendig aufgedeckt. Wachtuerme, weitere
+Einheiten und Magie erweitern das spaeter.
 
 ## Welt und Fraktionen
 

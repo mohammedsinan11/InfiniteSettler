@@ -46,6 +46,7 @@ const cam = new Camera();
 let world: World = createExpeditionWorld(seedFromUrl());
 let gameAssets = emptyGameAssets();
 let renderer = new Renderer(canvas, world, cam, gameAssets);
+let selectedScout = false;
 
 const input = new Input(canvas, cam);
 const hud = new Hud(
@@ -57,10 +58,35 @@ const hud = new Hud(
   },
   (speed) => setSimulationSpeed(speed),
 );
-input.onModeChange = (m) => hud.setMode(m);
+input.onModeChange = (m) => {
+  if (m !== Mode.Pan) selectedScout = false;
+  hud.setMode(m);
+};
 input.onInspect = (x, y) => {
   selectedTile = { x, y };
-  if (world.state.run.phase !== RunPhase.Voyage) return;
+  if (world.state.run.phase !== RunPhase.Voyage) {
+    const scout = world.state.run.scout;
+    const scoutX = scout ? Math.round(scout.x / FP_ONE) : 0;
+    const scoutY = scout ? Math.round(scout.y / FP_ONE) : 0;
+    if (scout && x === scoutX && y === scoutY) {
+      selectedScout = true;
+      selectedTile = null;
+      hud.toast('Späher ausgewählt. Klicke auf Land, um es zu erkunden.', 'success');
+      return;
+    }
+    if (selectedScout && buildingAtTile(world, x, y) === undefined) {
+      if (getTile(world, x, y) === Tile.Water) {
+        hud.toast('Der Späher braucht einen Landweg.', 'warning');
+      } else {
+        input.enqueue({ t: 'scout', x, y });
+        selectedTile = null;
+        hud.toast('Späher unterwegs.', 'success');
+      }
+      return;
+    }
+    selectedScout = false;
+    return;
+  }
   if (!isExplored(world, x, y)) {
     hud.toast('Dieser Teil der Karte ist noch unentdeckt. Fahre bis an den Nebelrand.', 'warning');
     return;
@@ -147,6 +173,7 @@ function centerOnLand(): void {
 async function newWorld(seed: number): Promise<void> {
   attachWorld(createExpeditionWorld(seed));
   selectedTile = null;
+  selectedScout = false;
   centerOnExpedition();
   await clearSnapshot();
   saveState = 'neue Welt';
@@ -328,11 +355,21 @@ function frame(now: number): void {
 
   acc += paused ? 0 : dt * simSpeed;
   let ticked = false;
+  let landed = false;
   while (acc >= TICK_MS) {
     renderer.snapshotCarriers();
+    const previousPhase = world.state.run.phase;
     step(world, input.drain());
+    if (previousPhase === RunPhase.Voyage && world.state.run.phase === RunPhase.Settled) {
+      landed = true;
+    }
     acc -= TICK_MS;
     ticked = true;
+  }
+  if (landed) {
+    selectedScout = false;
+    input.setMode(Mode.Pan);
+    hud.toast('Die Siedlung ist gegründet. Dein Späher wartet am Lager.', 'success');
   }
 
   // Vom Holzfaeller abgeholzte Tiles aus dem Chunk-Cache werfen.
@@ -344,7 +381,7 @@ function frame(now: number): void {
     world.dirty.clear();
   }
 
-  renderer.draw(acc / TICK_MS, buildPreview());
+  renderer.draw(acc / TICK_MS, buildPreview(), selectedScout);
 
   if (ticked && now - lastHashAt > 500) {
     hashCache = hashWorldHex(world);
@@ -444,6 +481,15 @@ function currentObjective(): HudObjective {
       actionMode: Mode.Pan,
     };
   }
+  if (world.state.run.fogEnabled && (world.state.run.scout?.exploredSteps ?? 0) < 4) {
+    return {
+      eyebrow: 'Erkundung · Das unbekannte Land',
+      title: 'Den Späher aussenden',
+      reason: 'Klicke den grün markierten Späher an und schicke ihn zu einem Landstück am Nebelrand.',
+      progress: .16,
+      actionMode: Mode.Pan,
+    };
+  }
   const buildings = world.state.buildings.size;
   if (buildings === 0) return {
     eyebrow: 'Erster Eintrag · 0 von 7', title: 'Ein Lager als Ausgangspunkt',
@@ -494,6 +540,16 @@ function currentObjective(): HudObjective {
 }
 
 function currentSelection(): HudSelection | null {
+  if (selectedScout && world.state.run.scout) {
+    const scout = world.state.run.scout;
+    return {
+      kind: 'tile', title: 'Späher', subtitle: 'Erkundungstrupp',
+      lines: [
+        { label: 'Standort', value: `${Math.round(scout.x / FP_ONE)}, ${Math.round(scout.y / FP_ONE)}` },
+        { label: 'Aufgabe', value: scout.path.length > 0 ? 'Unterwegs' : 'Bereit' },
+      ],
+    };
+  }
   if (!selectedTile) return null;
   if (!isExplored(world, selectedTile.x, selectedTile.y)) return {
     kind: 'tile', title: 'Unentdeckt', subtitle: 'Jenseits des Kartenrandes',
@@ -550,15 +606,21 @@ function explainAttempt(mode: Mode, x: number, y: number): void {
   const type = BUILD_TYPE[mode];
   if (type !== undefined) {
     if (!canBuildInRun(world, type, x, y)) {
-      hud.toast(type === BuildingType.Storehouse
-        ? 'Das Lager muss nahe am Expeditionsschiff stehen.'
-        : 'Zuerst muss die Expedition mit einem Lager anlanden.', 'warning');
+      hud.toast(world.state.run.phase === RunPhase.Voyage
+        ? (type === BuildingType.Storehouse
+          ? 'Das Lager muss nahe am Expeditionsschiff stehen.'
+          : 'Zuerst muss die Expedition mit einem Lager anlanden.')
+        : 'Erkunde diesen Bauplatz zuerst mit dem Späher.', 'warning');
     } else if (!canAfford(world, type)) hud.toast('Nicht genügend Waren im Lager.', 'warning');
     else if (!canPlaceBuilding(world, type, x, y)) hud.toast('Dieser Standort ist für das Gebäude ungeeignet oder belegt.', 'warning');
     return;
   }
   if (world.state.run.phase === RunPhase.Voyage && mode !== Mode.Pan) {
     hud.toast('Zuerst muss die Expedition mit einem Lager anlanden.', 'warning');
+    return;
+  }
+  if (mode === Mode.Road && !isExplored(world, x, y)) {
+    hud.toast('Erkunde dieses Gebiet zuerst mit dem Späher.', 'warning');
     return;
   }
   if (mode === Mode.Road && (hasRoad(world, x, y) || buildingIdAt(world, x, y) !== undefined || !isBuildable(getTile(world, x, y)))) {

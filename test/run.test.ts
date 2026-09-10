@@ -6,6 +6,7 @@ import {
   canBuildInRun,
   isExplored,
   sailTo,
+  scoutTo,
   stepRun,
 } from '../src/sim/run';
 import { deserialize, serialize } from '../src/sim/serialize';
@@ -55,10 +56,29 @@ describe('Expeditionsdurchlauf', () => {
       t: 'build', bt: BuildingType.Storehouse, x: site.x, y: site.y,
     })).toBe(true);
     expect(world.state.run.phase).toBe(RunPhase.Settled);
-    expect(world.state.run.fogEnabled).toBe(false);
+    expect(world.state.run.fogEnabled).toBe(true);
+    expect(world.state.run.scout).not.toBeNull();
     const storehouse = [...world.state.buildings.values()][0];
     expect(storehouse.input[Good.Plank]).toBe(12);
     expect(storehouse.input[Good.Stone]).toBe(8);
+  });
+
+  it('laesst den Spaehtrupp Land aufdecken und bewahrt den Nebel', () => {
+    const world = createWorld(31337);
+    beginExpedition(world);
+    const site = landingSite(world);
+    applyCommand(world, { t: 'build', bt: BuildingType.Storehouse, x: site.x, y: site.y });
+    const scout = world.state.run.scout!;
+    const before = world.state.run.explored.size;
+    const target = reachableScoutTarget(world);
+
+    expect(scoutTo(world, target.x, target.y)).toBe(true);
+    for (let i = 0; i < 160; i++) stepRun(world);
+    expect(scout.exploredSteps).toBeGreaterThanOrEqual(4);
+    expect(world.state.run.explored.size).toBeGreaterThan(before);
+    expect(world.state.run.fogEnabled).toBe(true);
+    const loaded = deserialize(JSON.parse(JSON.stringify(serialize(world))));
+    expect(loaded.state.run.scout).toEqual(scout);
   });
 
   it('speichert Reise, Nebel und Vorrat ohne Informationsverlust', () => {
@@ -68,6 +88,26 @@ describe('Expeditionsdurchlauf', () => {
     expect(loaded.state.run.phase).toBe(RunPhase.Voyage);
     expect(loaded.state.run.expedition).toEqual(world.state.run.expedition);
     expect(loaded.state.run.explored).toEqual(world.state.run.explored);
+  });
+
+  it('laedt alte Version-2-Siedlungen weiterhin vollstaendig aufgedeckt', () => {
+    const snapshot = serialize(createWorld(123));
+    delete snapshot.run;
+    const loaded = deserialize(snapshot);
+    expect(loaded.state.run.fogEnabled).toBe(false);
+    expect(loaded.state.run.scout).toBeNull();
+    expect(loaded.state.run.phase).toBe(RunPhase.Settled);
+  });
+
+  it('laedt den Expeditionsstand vor Einfuehrung der Spaeher', () => {
+    const world = createWorld(456);
+    beginExpedition(world);
+    const snapshot = serialize(world);
+    delete snapshot.run!.scout;
+    const loaded = deserialize(snapshot);
+    expect(loaded.state.run.scout).toBeNull();
+    expect(loaded.state.run.fogEnabled).toBe(true);
+    expect(loaded.state.run.phase).toBe(RunPhase.Voyage);
   });
 });
 
@@ -89,4 +129,22 @@ function landingSite(world: ReturnType<typeof createWorld>) {
     }
   }
   throw new Error('Kein Lagerplatz am Expeditionsstart');
+}
+
+function reachableScoutTarget(world: ReturnType<typeof createWorld>) {
+  const scout = world.state.run.scout!;
+  const sx = Math.round(scout.x / FP_ONE);
+  const sy = Math.round(scout.y / FP_ONE);
+  for (let radius = 9; radius <= 16; radius++) {
+    for (let dy = -radius; dy <= radius; dy++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== radius) continue;
+        const x = sx + dx;
+        const y = sy + dy;
+        if (getTile(world, x, y) === Tile.Water) continue;
+        if (scoutTo(world, x, y)) return { x, y };
+      }
+    }
+  }
+  throw new Error('Kein erreichbares Späherziel');
 }

@@ -72,6 +72,7 @@ export function createWorld(seed: number): World {
       run: {
         phase: RunPhase.Settled,
         expedition: null,
+        scout: null,
         explored: new Set(),
         fogEnabled: false,
         landing: null,

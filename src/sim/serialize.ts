@@ -22,6 +22,7 @@ import {
   type Carrier,
   type Expedition,
   type RunState,
+  type Scout,
   type Ship,
 } from './types';
 
@@ -52,6 +53,7 @@ export interface Snapshot {
 export interface SnapshotRun {
   phase: number;
   expedition: Expedition | null;
+  scout?: Scout | null;
   explored: string[];
   fogEnabled: boolean;
   landing: { x: number; y: number } | null;
@@ -79,6 +81,7 @@ export function serialize(world: World): Snapshot {
     run: {
       phase: s.run.phase,
       expedition: cloneExpedition(s.run.expedition),
+      scout: cloneScout(s.run.scout),
       explored: Array.from(s.run.explored).sort(),
       fogEnabled: s.run.fogEnabled,
       landing: s.run.landing ? { ...s.run.landing } : null,
@@ -193,6 +196,7 @@ const cloneRun = (run: SnapshotRun | undefined): RunState => {
   if (!run) return {
     phase: RunPhase.Settled,
     expedition: null,
+    scout: null,
     explored: new Set(),
     fogEnabled: false,
     landing: null,
@@ -200,11 +204,24 @@ const cloneRun = (run: SnapshotRun | undefined): RunState => {
   return {
     phase: run.phase === RunPhase.Voyage ? RunPhase.Voyage : RunPhase.Settled,
     expedition: cloneExpedition(run.expedition),
+    scout: cloneScout(run.scout),
     explored: new Set(run.explored ?? []),
     fogEnabled: Boolean(run.fogEnabled),
     landing: run.landing ? { x: run.landing.x, y: run.landing.y } : null,
   };
 };
+
+const cloneScout = (scout: Scout | null | undefined): Scout | null =>
+  !scout ? null : {
+    x: scout.x,
+    y: scout.y,
+    heading: scout.heading ?? 2,
+    path: scout.path.slice(),
+    pathIdx: scout.pathIdx,
+    exploredSteps: scout.exploredSteps ?? 0,
+    lastRevealX: scout.lastRevealX,
+    lastRevealY: scout.lastRevealY,
+  };
 
 const cloneCarrier = (c: Carrier): Carrier => ({
   id: c.id,
