@@ -26,6 +26,49 @@ export const EXPEDITION_REVEAL_RADIUS = 9;
 export const LANDING_DISTANCE = 5;
 export const SCOUT_REVEAL_RADIUS = 7;
 
+/**
+ * Kleine, lesbare Freischaltfolge fuer neue Roguelike-Durchlaeufe.
+ *
+ * Alte Sandbox-Spielstaende erkennt man daran, dass sie weder Nebel noch
+ * Gruenderschiff besitzen; fuer sie bleibt bewusst der volle Baukasten offen.
+ * So aendert die neue Dramaturgie keinen bestehenden Spielstand.
+ */
+export function isBuildingUnlocked(world: World, type: BuildingType): boolean {
+  const run = world.state.run;
+  if (!run.fogEnabled && run.expedition === null) return true;
+  if (run.phase === RunPhase.Voyage) return type === BuildingType.Storehouse;
+
+  const has = (wanted: BuildingType): boolean => {
+    for (const building of world.state.buildings.values()) {
+      if (building.type === wanted) return true;
+    }
+    return false;
+  };
+  const hasWoodcutter = has(BuildingType.Woodcutter);
+  const hasSawmill = has(BuildingType.Sawmill);
+
+  switch (type) {
+    case BuildingType.Storehouse:
+    case BuildingType.Woodcutter:
+      return true;
+    case BuildingType.Sawmill:
+    case BuildingType.Depot:
+      return hasWoodcutter;
+    case BuildingType.Quarry:
+    case BuildingType.House:
+    case BuildingType.FisherHut:
+    case BuildingType.Farm:
+    case BuildingType.SmallHarbor:
+      return hasSawmill;
+    case BuildingType.Mill:
+      return has(BuildingType.Farm);
+    case BuildingType.Bakery:
+      return has(BuildingType.Mill);
+    case BuildingType.Harbor:
+      return has(BuildingType.SmallHarbor) || has(BuildingType.Harbor);
+  }
+}
+
 /** Beginnt einen neuen Durchlauf an einer deterministisch gefundenen Kueste. */
 export function beginExpedition(world: World): void {
   const [x, y] = findCoastalWater(world.state.seed);
@@ -128,6 +171,7 @@ export function canBuildInRun(
   y: number,
 ): boolean {
   const run = world.state.run;
+  if (!isBuildingUnlocked(world, type)) return false;
   if (run.phase !== RunPhase.Voyage) {
     if (!run.fogEnabled) return true;
     const footprint = BUILDING_SPECS[type].footprint;

@@ -91,6 +91,23 @@ export class Camera {
   }
 
   /**
+   * Weicher Fokus fuer steuerbare Einheiten.
+   *
+   * Anders als jumpTo darf diese Bewegung in jedem Frame laufen: Das Schiff
+   * bleibt ruhig im Bild, waehrend sein deterministischer Simulationszustand
+   * unangetastet bleibt. Bewusste Kameraeingaben schalten den Fokus im Client
+   * ab, bevor update() wieder die normale Traegheit uebernimmt.
+   */
+  follow(x: number, y: number, dtSeconds: number): void {
+    const amount = 1 - Math.exp(-Math.min(dtSeconds, 0.1) * 8);
+    this.x += (x - this.x) * amount;
+    this.y += (y - this.y) * amount;
+    this.vx = 0;
+    this.vy = 0;
+    this.hasAnchor = false;
+  }
+
+  /**
    * Zoom hart setzen. Notwendig, weil ein direktes cam.zoom = x von update()
    * sofort wieder auf targetZoom zurueckgezogen wuerde - das Feld allein ist
    * nicht mehr die Wahrheit.

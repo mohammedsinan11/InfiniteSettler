@@ -5,6 +5,7 @@ import {
   beginExpedition,
   canBuildInRun,
   isExplored,
+  isBuildingUnlocked,
   sailTo,
   scoutTo,
   stepRun,
@@ -108,6 +109,26 @@ describe('Expeditionsdurchlauf', () => {
     expect(loaded.state.run.scout).toBeNull();
     expect(loaded.state.run.fogEnabled).toBe(true);
     expect(loaded.state.run.phase).toBe(RunPhase.Voyage);
+  });
+
+  it('zeigt in neuen Durchlaeufen nur die naechsten sinnvollen Bauten', () => {
+    const world = createWorld(31337);
+    beginExpedition(world);
+    expect(isBuildingUnlocked(world, BuildingType.Storehouse)).toBe(true);
+    expect(isBuildingUnlocked(world, BuildingType.Woodcutter)).toBe(false);
+
+    const site = landingSite(world);
+    applyCommand(world, { t: 'build', bt: BuildingType.Storehouse, x: site.x, y: site.y });
+    expect(isBuildingUnlocked(world, BuildingType.Woodcutter)).toBe(true);
+    expect(isBuildingUnlocked(world, BuildingType.Sawmill)).toBe(false);
+    expect(isBuildingUnlocked(world, BuildingType.Bakery)).toBe(false);
+  });
+
+  it('laesst bestehende Sandbox-Spielstaende mit vollem Baukasten kompatibel', () => {
+    const world = createWorld(7);
+    for (const type of Object.values(BuildingType)) {
+      expect(isBuildingUnlocked(world, type)).toBe(true);
+    }
   });
 });
 

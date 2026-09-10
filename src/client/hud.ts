@@ -6,14 +6,15 @@ import {
 import type { GameAssets, GoodSprite } from './assets';
 import { emptyGameAssets } from './assets';
 import { GOOD_COLOR } from './colors';
-import { BUILD_TYPE, ModeGroup, MODES, Mode } from './input';
+import { BUILD_TYPE, MODES, Mode } from './input';
 import './hud.css';
 
 export interface HudSelection {
-  kind: 'tile' | 'building';
+  kind: 'tile' | 'building' | 'unit';
   title: string;
   subtitle: string;
   lines: readonly { label: string; value: string }[];
+  action?: { label: string; enabled: boolean };
 }
 
 export interface HudObjective {
@@ -41,6 +42,7 @@ export interface HudData {
   population: number;
   workersNeeded: number;
   affordable: Record<number, boolean>;
+  availableModes: Partial<Record<Mode, boolean>>;
   /** Frei verfügbare Lagerware, also ohne bereits für Träger reservierte Mengen. */
   availableGoods: readonly number[];
   seed: number;
@@ -51,6 +53,7 @@ export interface HudData {
   objective: HudObjective;
   selection: HudSelection | null;
   expedition: { supplies: number } | null;
+  musicEnabled: boolean;
 }
 
 const GOOD_ICON: Partial<Record<Good, GoodSprite>> = {
@@ -68,15 +71,12 @@ const BUILD_META: Record<BuildingKind, { description: string; chapter: string }>
   [BuildingType.Farm]: { description: 'Erzeugt Getreide für die Brotkette.', chapter: 'Nahrung' },
   [BuildingType.Mill]: { description: 'Mahlt Getreide zu Mehl.', chapter: 'Nahrung' },
   [BuildingType.Bakery]: { description: 'Backt sättigendes Brot aus Mehl.', chapter: 'Nahrung' },
-  [BuildingType.Depot]: { description: 'Einfacher Umschlagplatz mit zwei Trägern.', chapter: 'Logistik' },
+  [BuildingType.Depot]: { description: 'Einfacher Umschlagplatz mit zwei Trägern.', chapter: 'Wege & Logistik' },
   [BuildingType.Storehouse]: { description: 'Lagert Waren und entsendet vier Träger.', chapter: 'Grundversorgung' },
-  [BuildingType.SmallHarbor]: { description: 'Kleiner Anleger für ein Handelsschiff.', chapter: 'Logistik' },
-  [BuildingType.Harbor]: { description: 'Großer Umschlagplatz mit zwei Schiffen.', chapter: 'Logistik' },
+  [BuildingType.SmallHarbor]: { description: 'Kleiner Anleger für ein Handelsschiff.', chapter: 'Wege & Logistik' },
+  [BuildingType.Harbor]: { description: 'Großer Umschlagplatz mit zwei Schiffen.', chapter: 'Wege & Logistik' },
 };
-const CHAPTERS = ['Grundversorgung', 'Nahrung', 'Logistik'] as const;
-const TOOL_MARK: Partial<Record<Mode, string>> = {
-  [Mode.Road]: '╱', [Mode.Upgrade]: '↑', [Mode.Demolish]: '×',
-};
+const CHAPTERS = ['Grundversorgung', 'Nahrung', 'Wege & Logistik'] as const;
 
 export class Hud {
   private assets: GameAssets = emptyGameAssets();
@@ -92,15 +92,17 @@ export class Hud {
   private toastEl: HTMLElement;
   private titleState: HTMLElement;
   private readonly buildBtn: HTMLButtonElement;
-  private readonly mapBtn: HTMLButtonElement;
+  private readonly selectBtn: HTMLButtonElement;
+  private readonly compassBtn: HTMLButtonElement;
+  private readonly musicBtn: HTMLButtonElement;
   private readonly systemBtn: HTMLButtonElement;
   private readonly diagnosticBtn: HTMLButtonElement;
   private modalPeers: HTMLElement[] = [];
-  private modeButtons = new Map<Mode, HTMLButtonElement>();
   private speedButtons = new Map<number, HTMLButtonElement>();
   private buildTiles = new Map<Mode, HTMLButtonElement>();
   private lastResourceKey = '';
   private lastAffordKey = '';
+  private lastAvailableKey = '';
   private lastObjectiveKey = '';
   private lastSelectionKey = '';
   private toastTimer = 0;
@@ -111,6 +113,8 @@ export class Hud {
     onReset: () => void,
     onRecenter: () => void,
     onSpeed: (speed: 0 | 1 | 2 | 4) => void,
+    private onSelectionAction: () => void,
+    private onMusicToggle: () => void,
   ) {
     const header = el('header', 'is-header');
     const left = el('div', 'is-header-left');
@@ -122,9 +126,7 @@ export class Hud {
     const identity = el('div', 'is-identity');
     identity.innerHTML = '<span class="is-seal" aria-hidden="true">IS</span><div><h1>Infinite Settler</h1><p>Siedlung im Aufbau</p></div>';
     this.titleState = identity.querySelector('p') as HTMLElement;
-    this.mapBtn = button('Karte', () => { this.onMode(Mode.Pan); this.closePanels(); }, 'is-map-mode');
-    this.mapBtn.title = 'Karte ansehen und Gebäude auswählen (1)';
-    left.append(this.systemBtn, identity, this.mapBtn);
+    left.append(this.systemBtn, identity);
     this.resources = el('div', 'is-resources');
     header.append(left, this.resources);
 
@@ -151,8 +153,11 @@ export class Hud {
       speedRow.append(speedButton);
     }
     const actions = el('div', 'is-system-actions');
+    this.musicBtn = button('Musik: an', this.onMusicToggle, 'is-action');
     actions.append(
       button('Zur Siedlung', onRecenter, 'is-action'),
+      this.musicBtn,
+      button('Abrisswerkzeug', () => { this.onMode(Mode.Demolish); this.closePanels(); }, 'is-action is-muted-danger'),
       button('Neue Welt', onNewWorld, 'is-action'),
       button('Spielstand zurücksetzen', () => {
         if (window.confirm('Den aktuellen Spielstand unwiderruflich zurücksetzen?')) onReset();
@@ -166,14 +171,25 @@ export class Hud {
     this.diagnostics.hidden = true;
 
     const dock = el('nav', 'is-dock');
-    dock.setAttribute('aria-label', 'Bauwerkzeuge');
-    dock.append(this.makeTool(Mode.Road));
+    dock.setAttribute('aria-label', 'Befehle');
+    this.selectBtn = button('', () => { this.onMode(Mode.Pan); this.closePanels(); }, 'is-tool is-select');
+    this.selectBtn.innerHTML = '<span class="is-tool-mark" aria-hidden="true">⌖</span><span>Auswahl</span><kbd>1</kbd>';
+    this.selectBtn.title = 'Einheiten und Gebäude auswählen (1)';
     this.buildBtn = button('', () => {
       this.dismissWelcome();
       this.togglePanel(this.catalog);
     }, 'is-tool is-build');
     this.buildBtn.innerHTML = '<span class="is-tool-mark" aria-hidden="true">＋</span><span>Bauen</span><kbd>C</kbd>';
-    dock.append(this.buildBtn, this.makeTool(Mode.Upgrade), this.makeTool(Mode.Demolish));
+    dock.append(this.selectBtn, this.buildBtn);
+
+    this.compassBtn = button('', () => {
+      this.dismissWelcome();
+      onRecenter();
+      this.closePanels();
+    }, 'is-compass');
+    this.compassBtn.innerHTML = '<span aria-hidden="true">✦</span><small>Fokus</small>';
+    this.compassBtn.title = 'Zur Expedition oder Siedlung zentrieren';
+    this.compassBtn.setAttribute('aria-label', 'Kamera neu zentrieren');
 
     this.welcome = el('section', 'is-welcome');
     this.welcome.id = 'settler-welcome';
@@ -195,8 +211,8 @@ export class Hud {
     this.toastEl = el('div', 'is-toast');
     this.toastEl.setAttribute('role', 'status');
     this.toastEl.setAttribute('aria-live', 'polite');
-    document.body.append(header, this.objective, this.inspector, this.catalog, this.system, this.diagnostics, this.welcomeBackdrop, this.welcome, this.toastEl, dock);
-    this.modalPeers = [header, this.objective, this.inspector, this.catalog, this.system, this.diagnostics, this.toastEl, dock];
+    document.body.append(header, this.objective, this.inspector, this.catalog, this.system, this.diagnostics, this.welcomeBackdrop, this.welcome, this.toastEl, dock, this.compassBtn);
+    this.modalPeers = [header, this.objective, this.inspector, this.catalog, this.system, this.diagnostics, this.toastEl, dock, this.compassBtn];
 
     document.addEventListener('pointerdown', (event) => {
       const target = event.target as Node;
@@ -213,15 +229,6 @@ export class Hud {
       if (event.key === ' ') { event.preventDefault(); onSpeed(0); }
     });
     this.refreshCatalog();
-  }
-
-  private makeTool(mode: Mode): HTMLButtonElement {
-    const entry = MODES.find((item) => item.mode === mode);
-    const node = button('', () => { this.onMode(mode); this.closePanels(); }, 'is-tool is-secondary-tool');
-    node.innerHTML = `<span class="is-tool-mark" aria-hidden="true">${TOOL_MARK[mode] ?? '·'}</span><span>${entry?.label ?? mode}</span><kbd>${entry?.key ?? ''}</kbd>`;
-    node.title = `${entry?.label ?? mode} – Taste ${entry?.key ?? ''}`;
-    this.modeButtons.set(mode, node);
-    return node;
   }
 
   private togglePanel(panel: HTMLElement, force?: boolean): void {
@@ -244,6 +251,7 @@ export class Hud {
     this.assets = assets;
     this.lastResourceKey = '';
     this.lastAffordKey = '';
+    this.lastAvailableKey = '';
     this.refreshCatalog();
   }
 
@@ -274,23 +282,30 @@ export class Hud {
   }
 
   setMode(mode: Mode): void {
-    for (const [key, node] of this.modeButtons) node.classList.toggle('is-active', key === mode);
     for (const [key, node] of this.buildTiles) node.classList.toggle('is-active', key === mode);
     const type = BUILD_TYPE[mode];
     const entry = MODES.find((item) => item.mode === mode);
-    this.mapBtn.classList.toggle('is-active', mode === Mode.Pan);
+    const placing = mode !== Mode.Pan;
+    this.selectBtn.classList.toggle('is-active', !placing);
+    const selectMark = this.selectBtn.querySelector('.is-tool-mark');
+    const selectLabel = this.selectBtn.querySelector('span:nth-child(2)');
+    if (selectMark) selectMark.textContent = placing ? '×' : '⌖';
+    if (selectLabel) selectLabel.textContent = placing ? 'Abbrechen' : 'Auswahl';
+    this.selectBtn.classList.toggle('is-cancel', placing);
     this.buildBtn.classList.toggle('is-active', type !== undefined);
     const buildLabel = this.buildBtn.querySelector('span:nth-child(2)');
     if (buildLabel) buildLabel.textContent = type === undefined ? 'Bauen' : (entry?.label ?? 'Bauen');
-    this.toast(mode === Mode.Pan ? 'Karte erkunden · Gebäude antippen für Details' : `Werkzeug: ${entry?.label ?? mode}`);
+    this.toast(mode === Mode.Pan ? 'Auswahl aktiv · Einheiten greifen oder Ziele anklicken' : `Werkzeug: ${entry?.label ?? mode} · Esc zum Abbrechen`);
   }
 
   update(data: HudData): void {
     if (data.buildings > 0) this.dismissWelcome();
     this.updateResources(data);
+    this.updateAvailableModes(data.availableModes);
     this.updateAffordable(data.affordable, data.availableGoods);
     this.updateObjective(data.objective);
     this.updateSelection(data.selection);
+    this.musicBtn.textContent = `Musik: ${data.musicEnabled ? 'an' : 'aus'}`;
     for (const [value, node] of this.speedButtons) node.classList.toggle('is-active', value === (data.paused ? 0 : data.speed));
     this.updateDiagnostics(data);
     this.titleState.textContent = data.paused
@@ -307,11 +322,18 @@ export class Hud {
       const section = el('section', 'is-chapter');
       section.innerHTML = `<h3>${chapter}</h3>`;
       const list = el('div', 'is-build-list');
+      if (chapter === 'Wege & Logistik') {
+        const road = button('', () => { this.onMode(Mode.Road); this.closePanels(); }, 'is-build-card is-road-card');
+        const sprite = this.assets.terrain.road?.[0];
+        road.dataset.label = 'Straße';
+        road.innerHTML = `<span class="is-build-sprite">${sprite ? `<img src="${sprite.src}" alt="">` : '<i class="is-road-fallback"></i>'}</span><span class="is-build-copy"><span class="is-build-name"><strong>Straße</strong></span><small>Verbindet Gebäude und führt Träger durch die Siedlung.</small><span class="is-cost"><span class="is-free">ohne Kosten</span></span></span><kbd>2</kbd>`;
+        this.buildTiles.set(Mode.Road, road);
+        list.append(road);
+      }
       const entries = MODES
-        .filter((entry) => entry.group === ModeGroup.Building)
+        .filter((entry) => BUILD_TYPE[entry.mode] !== undefined)
         .sort((a, b) => Number(BUILD_TYPE[a.mode] !== BuildingType.Storehouse) - Number(BUILD_TYPE[b.mode] !== BuildingType.Storehouse));
       for (const entry of entries) {
-        if (entry.group !== ModeGroup.Building) continue;
         const type = BUILD_TYPE[entry.mode];
         if (type === undefined || BUILD_META[type].chapter !== chapter) continue;
         const spec = BUILDING_SPECS[type];
@@ -322,14 +344,23 @@ export class Hud {
         // sauberen wasserfreien Richtungssteg statt eines leeren Feldes.
         const sprite = this.assets.buildings[type]?.[0]
           ?? (type === BuildingType.Harbor ? this.assets.smallHarbor.down : null);
-        tile.classList.toggle('is-recommended', type === BuildingType.Storehouse);
         tile.dataset.label = entry.label;
-        tile.innerHTML = `<span class="is-build-sprite">${sprite ? `<img src="${sprite.src}" alt="">` : '<i></i>'}</span><span class="is-build-copy"><span class="is-build-name"><strong>${entry.label}</strong>${type === BuildingType.Storehouse ? '<em>Empfohlen</em>' : ''}</span><small>${BUILD_META[type].description}</small><span class="is-cost">${this.costMarks(spec.cost)}</span><span class="is-missing" aria-live="polite"></span></span><kbd>${entry.key.toUpperCase()}</kbd>`;
+        tile.innerHTML = `<span class="is-build-sprite">${sprite ? `<img src="${sprite.src}" alt="">` : '<i></i>'}</span><span class="is-build-copy"><span class="is-build-name"><strong>${entry.label}</strong><em class="is-recommendation" hidden>Empfohlen</em></span><small>${BUILD_META[type].description}</small><span class="is-cost">${this.costMarks(spec.cost)}</span><span class="is-missing" aria-live="polite"></span></span><kbd>${entry.key.toUpperCase()}</kbd>`;
         this.buildTiles.set(entry.mode, tile);
         list.append(tile);
       }
       section.append(list);
       this.catalogScroll.append(section);
+    }
+  }
+
+  private updateAvailableModes(available: Partial<Record<Mode, boolean>>): void {
+    const key = [...this.buildTiles.keys()].map((mode) => `${mode}:${available[mode] !== false ? 1 : 0}`).join('|');
+    if (key === this.lastAvailableKey) return;
+    this.lastAvailableKey = key;
+    for (const [mode, tile] of this.buildTiles) tile.hidden = available[mode] === false;
+    for (const section of this.catalogScroll.querySelectorAll<HTMLElement>('.is-chapter')) {
+      section.hidden = ![...section.querySelectorAll<HTMLButtonElement>('.is-build-card')].some((tile) => !tile.hidden);
     }
   }
 
@@ -384,9 +415,15 @@ export class Hud {
   }
 
   private updateObjective(objective: HudObjective): void {
-    const key = `${objective.eyebrow}|${objective.title}|${objective.progress}`;
+    const key = `${objective.eyebrow}|${objective.title}|${objective.progress}|${objective.actionMode ?? ''}`;
     if (key === this.lastObjectiveKey) return;
     this.lastObjectiveKey = key;
+    for (const [mode, tile] of this.buildTiles) {
+      const recommended = mode === objective.actionMode;
+      tile.classList.toggle('is-recommended', recommended);
+      const badge = tile.querySelector<HTMLElement>('.is-recommendation');
+      if (badge) badge.hidden = !recommended;
+    }
     this.objective.innerHTML = `<span class="is-kicker">${objective.eyebrow}</span><button class="is-objective-action" type="button"><strong>${objective.title}</strong><span>→</span></button><p>${objective.reason}</p><div class="is-progress"><i style="width:${Math.round(objective.progress * 100)}%"></i></div>`;
     this.objective.querySelector('button')?.addEventListener('click', () => {
       if (objective.actionMode) {
@@ -402,7 +439,10 @@ export class Hud {
     this.lastSelectionKey = key;
     this.inspector.hidden = selection === null;
     if (!selection) return;
-    this.inspector.innerHTML = `<span class="is-kicker">Auswahl</span><h2>${selection.title}</h2><p>${selection.subtitle}</p><dl>${selection.lines.map((line) => `<div><dt>${line.label}</dt><dd>${line.value}</dd></div>`).join('')}</dl>`;
+    const portrait = selection.kind === 'unit' ? this.assets.carrier.down : null;
+    this.inspector.classList.toggle('is-unit-selection', selection.kind === 'unit');
+    this.inspector.innerHTML = `<span class="is-kicker">Auswahl</span><div class="is-selection-head">${portrait ? `<span class="is-selection-portrait"><img src="${portrait.src}" alt=""></span>` : ''}<div><h2>${selection.title}</h2><p>${selection.subtitle}</p></div></div><dl>${selection.lines.map((line) => `<div><dt>${line.label}</dt><dd>${line.value}</dd></div>`).join('')}</dl>${selection.action ? `<button type="button" class="is-selection-action" ${selection.action.enabled ? '' : 'disabled'}>${selection.action.label}</button>` : ''}`;
+    this.inspector.querySelector<HTMLButtonElement>('.is-selection-action')?.addEventListener('click', this.onSelectionAction);
   }
 
   private updateDiagnostics(data: HudData): void {

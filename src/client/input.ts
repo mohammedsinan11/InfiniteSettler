@@ -90,8 +90,16 @@ export const BUILD_TYPE: Partial<Record<Mode, BuildingType>> = {
 export class Input {
   mode: Mode = Mode.Pan;
   onModeChange: ((m: Mode) => void) | null = null;
+  onModeDenied: ((m: Mode) => void) | null = null;
+  canUseMode: ((m: Mode) => boolean) | null = null;
   /** Antippen im Kartenmodus waehlt eine Kachel fuer den Inspektor. */
   onInspect: ((x: number, y: number) => void) | null = null;
+  /** Direkte RTS-Geste: Einheit greifen, markieren und auf ein Ziel ziehen. */
+  isDraggableUnitAt: ((x: number, y: number) => boolean) | null = null;
+  onUnitSelect: ((x: number, y: number) => void) | null = null;
+  onUnitMove: ((x: number, y: number) => void) | null = null;
+  /** Bewusste Kamerabewegung beendet einen automatischen Einheitenfokus. */
+  onManualCamera: (() => void) | null = null;
   /** Rein visuelle Rueckmeldung vor dem deterministischen Command. */
   onAttempt: ((mode: Mode, x: number, y: number) => void) | null = null;
   /**
@@ -106,6 +114,9 @@ export class Input {
   private keys = new Set<string>();
   private pointerDown = false;
   private panning = false;
+  private draggingUnit = false;
+  private unitStartX = 0;
+  private unitStartY = 0;
   /**
    * Alle aktiven Zeiger. Auf dem Handy gibt es keine rechte Maustaste und
    * keine Tastatur - zwei Finger sind dort die einzige Moeglichkeit, im
@@ -186,6 +197,10 @@ export class Input {
   }
 
   setMode(m: Mode): void {
+    if (this.canUseMode && !this.canUseMode(m)) {
+      this.onModeDenied?.(m);
+      return;
+    }
     this.mode = m;
     this.onModeChange?.(m);
   }
@@ -211,6 +226,8 @@ export class Input {
       this.queue.length = this.queueBeforePress;
       this.pointerDown = false;
       this.panning = false;
+      this.draggingUnit = false;
+      this.canvas.classList.remove('dragging-unit');
       this.lastPainted = '';
       this.beginGesture();
       this.cam.stopMotion();
@@ -226,14 +243,26 @@ export class Input {
     this.pressY = e.clientY;
     this.dragged = false;
     this.lastPainted = '';
-    // Rechte Maustaste schiebt immer, linke nur im Ansehen-Modus.
-    this.panning = e.button !== 0 || this.mode === Mode.Pan;
+    const rect = this.canvas.getBoundingClientRect();
+    const tileX = Math.floor(this.cam.screenToWorldX(e.clientX - rect.left));
+    const tileY = Math.floor(this.cam.screenToWorldY(e.clientY - rect.top));
+    this.draggingUnit = e.button === 0 && this.mode === Mode.Pan
+      && (this.isDraggableUnitAt?.(tileX, tileY) ?? false);
+    if (this.draggingUnit) {
+      this.unitStartX = tileX;
+      this.unitStartY = tileY;
+      this.onUnitSelect?.(tileX, tileY);
+    }
+    // Rechte Maustaste schiebt immer, linke nur im Auswahlmodus und nicht,
+    // wenn direkt eine Einheit gegriffen wurde.
+    this.panning = !this.draggingUnit && (e.button !== 0 || this.mode === Mode.Pan);
     this.flingX = 0;
     this.flingY = 0;
     this.lastMoveAt = e.timeStamp;
     this.cam.stopMotion();
-    if (!this.panning) this.paintAt(e.clientX, e.clientY);
+    if (!this.panning && !this.draggingUnit) this.paintAt(e.clientX, e.clientY);
     if (this.panning) this.canvas.classList.add('dragging');
+    if (this.draggingUnit) this.canvas.classList.add('dragging-unit');
   };
 
   private onPointerMove = (e: PointerEvent): void => {
@@ -255,7 +284,11 @@ export class Input {
     const dy = e.clientY - this.lastY;
     if (Math.hypot(e.clientX - this.pressX, e.clientY - this.pressY) > 6) this.dragged = true;
 
-    if (this.panning) {
+    if (this.draggingUnit) {
+      // Ziel wird erst beim Loslassen gesendet. Dadurch entstehen beim Ziehen
+      // keine Ketten aus konkurrierenden Wegbefehlen.
+    } else if (this.panning) {
+      if (dx !== 0 || dy !== 0) this.onManualCamera?.();
       this.cam.dragBy(dx, dy);
       // Gleitender Mittelwert der Zeigergeschwindigkeit in Pixel/Sekunde.
       const dtMs = Math.max(1, e.timeStamp - this.lastMoveAt);
@@ -301,6 +334,7 @@ export class Input {
     // Erst schieben (Mittelpunkt), dann zoomen (Abstand) - beides in
     // derselben Geste, wie man es von Karten-Apps kennt.
     this.cam.dragBy(midX - this.gestureMidX, midY - this.gestureMidY);
+    this.onManualCamera?.();
     const ratio = dist / this.gestureDist;
     // Winzige Schwankungen ignorieren, sonst zittert das Bild beim Halten.
     if (Math.abs(ratio - 1) > 0.01) this.cam.pinch(midX, midY, ratio);
@@ -313,6 +347,7 @@ export class Input {
   private onPointerUp = (e: PointerEvent): void => {
     const wasPanning = this.panning;
     const wasDragged = this.dragged;
+    const wasDraggingUnit = this.draggingUnit;
     this.pointers.delete(e.pointerId);
     if (this.pointers.size >= 2) {
       this.beginGesture();
@@ -323,6 +358,8 @@ export class Input {
       this.gestureDist = 0;
       this.pointerDown = false;
       this.panning = false;
+      this.draggingUnit = false;
+      this.canvas.classList.remove('dragging-unit');
       return;
     }
     this.gestureDist = 0;
@@ -332,9 +369,20 @@ export class Input {
     }
     this.pointerDown = false;
     this.panning = false;
+    this.draggingUnit = false;
     this.flingX = 0;
     this.flingY = 0;
     this.canvas.classList.remove('dragging');
+    this.canvas.classList.remove('dragging-unit');
+    if (wasDraggingUnit) {
+      const rect = this.canvas.getBoundingClientRect();
+      const x = Math.floor(this.cam.screenToWorldX(e.clientX - rect.left));
+      const y = Math.floor(this.cam.screenToWorldY(e.clientY - rect.top));
+      if (e.type !== 'pointercancel' && wasDragged && (x !== this.unitStartX || y !== this.unitStartY)) {
+        this.onUnitMove?.(x, y);
+      }
+      return;
+    }
     if (wasPanning && !wasDragged && this.mode === Mode.Pan) {
       const rect = this.canvas.getBoundingClientRect();
       this.onInspect?.(
@@ -346,6 +394,7 @@ export class Input {
 
   private onWheel = (e: WheelEvent): void => {
     e.preventDefault();
+    this.onManualCamera?.();
     const rect = this.canvas.getBoundingClientRect();
     // deltaMode 1 = Zeilen (Firefox), sonst Pixel. Auf Rasten normieren.
     const raw = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
@@ -409,6 +458,9 @@ export class Input {
   private onKeyDown = (e: KeyboardEvent): void => {
     const k = e.key.toLowerCase();
     this.keys.add(k);
+    if (k === 'w' || k === 'a' || k === 's' || k === 'd' || k.startsWith('arrow')) {
+      this.onManualCamera?.();
+    }
     const entry = MODES.find((m) => m.key === k);
     if (entry) this.setMode(entry.mode);
   };

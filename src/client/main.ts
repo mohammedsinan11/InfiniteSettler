@@ -28,7 +28,13 @@ import {
   type World,
 } from '../sim/state';
 import { isBuildable, TILE_NAMES, Tile } from '../sim/terrain';
-import { beginExpedition, canBuildInRun, expeditionNearLand, isExplored } from '../sim/run';
+import {
+  beginExpedition,
+  canBuildInRun,
+  expeditionNearLand,
+  isBuildingUnlocked,
+  isExplored,
+} from '../sim/run';
 import {
   BUILDING_SPECS, BuildingType, GOOD_COUNT, GOOD_NAMES, RunPhase, type Building,
 } from '../sim/types';
@@ -36,7 +42,8 @@ import { TICK_MS, step } from '../sim/tick';
 import { Camera } from './camera';
 import { emptyGameAssets, loadGameAssets } from './assets';
 import { Hud, type HudObjective, type HudSelection } from './hud';
-import { BUILD_TYPE, Input, Mode } from './input';
+import { BUILD_TYPE, Input, MODES, Mode } from './input';
+import { ExpeditionMusic } from './music';
 import { clearSnapshot, loadSnapshot, saveSnapshot } from './persist';
 import { Renderer, type BuildPreview } from './renderer';
 
@@ -47,21 +54,33 @@ let world: World = createExpeditionWorld(seedFromUrl());
 let gameAssets = emptyGameAssets();
 let renderer = new Renderer(canvas, world, cam, gameAssets);
 let selectedScout = false;
+let selectedTile: { x: number; y: number } | null = null;
+let expeditionFollow = true;
+const music = new ExpeditionMusic();
 
 const input = new Input(canvas, cam);
 const hud = new Hud(
   (m) => input.setMode(m),
   () => void newWorld((Math.random() * 0x7fffffff) | 0),
   () => void resetSave(),
-  () => {
-    if (!centerOnSettlement() && !centerOnExpedition()) centerOnLand();
-  },
+  () => recenterView(),
   (speed) => setSimulationSpeed(speed),
+  () => upgradeSelection(),
+  () => {
+    const enabled = music.toggle();
+    hud.toast(enabled ? 'Expeditionsmusik eingeschaltet.' : 'Musik ausgeschaltet.');
+  },
 );
+input.canUseMode = (mode) => isModeAvailable(mode);
+input.onModeDenied = () => hud.toast('Dieses Vorhaben wird erst im Verlauf der Expedition freigeschaltet.', 'warning');
 input.onModeChange = (m) => {
   if (m !== Mode.Pan) selectedScout = false;
   hud.setMode(m);
 };
+input.onManualCamera = () => { expeditionFollow = false; };
+input.isDraggableUnitAt = (x, y) => isScoutAt(x, y);
+input.onUnitSelect = () => selectScout();
+input.onUnitMove = (x, y) => moveSelectedScout(x, y);
 input.onInspect = (x, y) => {
   selectedTile = { x, y };
   if (world.state.run.phase !== RunPhase.Voyage) {
@@ -69,19 +88,11 @@ input.onInspect = (x, y) => {
     const scoutX = scout ? Math.round(scout.x / FP_ONE) : 0;
     const scoutY = scout ? Math.round(scout.y / FP_ONE) : 0;
     if (scout && x === scoutX && y === scoutY) {
-      selectedScout = true;
-      selectedTile = null;
-      hud.toast('Späher ausgewählt. Klicke auf Land, um es zu erkunden.', 'success');
+      selectScout();
       return;
     }
     if (selectedScout && buildingAtTile(world, x, y) === undefined) {
-      if (getTile(world, x, y) === Tile.Water) {
-        hud.toast('Der Späher braucht einen Landweg.', 'warning');
-      } else {
-        input.enqueue({ t: 'scout', x, y });
-        selectedTile = null;
-        hud.toast('Späher unterwegs.', 'success');
-      }
+      moveSelectedScout(x, y);
       return;
     }
     selectedScout = false;
@@ -113,6 +124,37 @@ input.resolveBuild = (x, y) => {
 };
 input.setMode(Mode.Pan);
 
+function isScoutAt(x: number, y: number): boolean {
+  if (world.state.run.phase !== RunPhase.Settled || !world.state.run.scout) return false;
+  return x === Math.round(world.state.run.scout.x / FP_ONE)
+    && y === Math.round(world.state.run.scout.y / FP_ONE);
+}
+
+function selectScout(): void {
+  if (!world.state.run.scout) return;
+  selectedScout = true;
+  selectedTile = null;
+  hud.toast('Späher ausgewählt · ziehen oder ein Landziel anklicken.', 'success');
+}
+
+function moveSelectedScout(x: number, y: number): void {
+  if (!selectedScout) return;
+  if (getTile(world, x, y) === Tile.Water) {
+    hud.toast('Der Späher braucht einen Landweg.', 'warning');
+    return;
+  }
+  input.enqueue({ t: 'scout', x, y });
+  selectedTile = null;
+  hud.toast('Späher unterwegs.', 'success');
+}
+
+function isModeAvailable(mode: Mode): boolean {
+  if (mode === Mode.Pan) return true;
+  const type = BUILD_TYPE[mode];
+  if (type !== undefined) return isBuildingUnlocked(world, type);
+  return world.state.run.phase === RunPhase.Settled;
+}
+
 /** Wasserfreie Vorschau fuer den grossen Hafen waehrend des Asset-Umbaus. */
 const buildingSprite = (type: BuildingType): HTMLImageElement | null =>
   gameAssets.buildings[type]?.[0]
@@ -143,7 +185,24 @@ function centerOnExpedition(): boolean {
   const expedition = world.state.run.expedition;
   if (!expedition) return false;
   cam.jumpTo(expedition.x / FP_ONE, expedition.y / FP_ONE);
+  if (world.state.run.phase === RunPhase.Voyage) {
+    cam.setZoom(29);
+    expeditionFollow = true;
+  }
   return true;
+}
+
+function recenterView(): void {
+  if (world.state.run.phase === RunPhase.Voyage && centerOnExpedition()) {
+    hud.toast('Kompass auf das Expeditionsschiff ausgerichtet.', 'success');
+    return;
+  }
+  if (centerOnSettlement()) {
+    cam.setZoom(Math.max(cam.zoom, 22));
+    hud.toast('Zur Siedlung zurückgekehrt.', 'success');
+    return;
+  }
+  centerOnLand();
 }
 
 /**
@@ -174,6 +233,7 @@ async function newWorld(seed: number): Promise<void> {
   attachWorld(createExpeditionWorld(seed));
   selectedTile = null;
   selectedScout = false;
+  input.setMode(Mode.Pan);
   centerOnExpedition();
   await clearSnapshot();
   saveState = 'neue Welt';
@@ -246,6 +306,7 @@ async function boot(): Promise<void> {
   }
   gameAssets = await assetsPromise;
   renderer.setAssets(gameAssets);
+  music.setPhase(world.state.run.phase === RunPhase.Voyage ? 'voyage' : 'settled');
   // Das HUD nimmt seine Icons aus denselben Sprites - der Bauknopf zeigt
   // damit genau das Gebaeude, das danach auf der Karte steht.
   hud.setAssets(gameAssets);
@@ -314,7 +375,6 @@ let lastSaveAt = 0;
 let saveState = 'noch nicht gespeichert';
 let paused = false;
 let simSpeed: 1 | 2 | 4 = 1;
-let selectedTile: { x: number; y: number } | null = null;
 
 function setSimulationSpeed(value: 0 | 1 | 2 | 4): void {
   if (value === 0) {
@@ -351,7 +411,9 @@ function frame(now: number): void {
   fps = fps === 0 ? 1000 / Math.max(dt, 1) : fps * 0.9 + (1000 / Math.max(dt, 1)) * 0.1;
 
   resize();
-  cam.update(dt / 1000, input.panAxis());
+  const panAxis = input.panAxis();
+  if (panAxis.x !== 0 || panAxis.y !== 0) expeditionFollow = false;
+  cam.update(dt / 1000, panAxis);
 
   acc += paused ? 0 : dt * simSpeed;
   let ticked = false;
@@ -367,9 +429,17 @@ function frame(now: number): void {
     ticked = true;
   }
   if (landed) {
-    selectedScout = false;
+    expeditionFollow = false;
+    music.setPhase('settled');
+    selectedTile = null;
+    selectedScout = world.state.run.scout !== null;
     input.setMode(Mode.Pan);
-    hud.toast('Die Siedlung ist gegründet. Dein Späher wartet am Lager.', 'success');
+    hud.toast('Die Siedlung ist gegründet. Der Späher ist ausgewählt und bereit.', 'success');
+  }
+
+  if (expeditionFollow && world.state.run.phase === RunPhase.Voyage) {
+    const expedition = world.state.run.expedition;
+    if (expedition) cam.follow(expedition.x / FP_ONE, expedition.y / FP_ONE, dt / 1000);
   }
 
   // Vom Holzfaeller abgeholzte Tiles aus dem Chunk-Cache werfen.
@@ -382,6 +452,9 @@ function frame(now: number): void {
   }
 
   renderer.draw(acc / TICK_MS, buildPreview(), selectedScout);
+  const hover = input.hoverTile();
+  canvas.classList.toggle('can-select-unit', input.mode === Mode.Pan
+    && hover !== null && isScoutAt(hover.x, hover.y));
 
   if (ticked && now - lastHashAt > 500) {
     hashCache = hashWorldHex(world);
@@ -432,6 +505,9 @@ function updateHud(): void {
     affordable: Object.fromEntries(
       Object.values(BuildingType).map((t) => [t, canAfford(world, t)]),
     ),
+    availableModes: Object.fromEntries(
+      MODES.map((entry) => [entry.mode, isModeAvailable(entry.mode)]),
+    ),
     availableGoods: availableBuildingGoods(),
     seed: world.state.seed,
     saved: saveState,
@@ -443,6 +519,7 @@ function updateHud(): void {
     expedition: world.state.run.phase === RunPhase.Voyage
       ? { supplies: world.state.run.expedition?.supplies ?? 0 }
       : null,
+    musicEnabled: music.enabled,
   });
 }
 
@@ -476,7 +553,7 @@ function currentObjective(): HudObjective {
     return {
       eyebrow: `Expedition · ${supplies} Vorräte`,
       title: 'Eine verheißungsvolle Küste finden',
-      reason: 'Klicke im Kartenmodus auf entdecktes Wasser, um einen Kurs zu setzen.',
+      reason: 'Klicke auf entdecktes Wasser, um einen Kurs zu setzen.',
       progress: .04,
       actionMode: Mode.Pan,
     };
@@ -485,7 +562,7 @@ function currentObjective(): HudObjective {
     return {
       eyebrow: 'Erkundung · Das unbekannte Land',
       title: 'Den Späher aussenden',
-      reason: 'Klicke den grün markierten Späher an und schicke ihn zu einem Landstück am Nebelrand.',
+      reason: 'Greife den grün markierten Späher und ziehe ihn zu einem Landstück am Nebelrand.',
       progress: .16,
       actionMode: Mode.Pan,
     };
@@ -543,7 +620,7 @@ function currentSelection(): HudSelection | null {
   if (selectedScout && world.state.run.scout) {
     const scout = world.state.run.scout;
     return {
-      kind: 'tile', title: 'Späher', subtitle: 'Erkundungstrupp',
+      kind: 'unit', title: 'Späher', subtitle: 'Erkundungstrupp · direkt über die Karte ziehen',
       lines: [
         { label: 'Standort', value: `${Math.round(scout.x / FP_ONE)}, ${Math.round(scout.y / FP_ONE)}` },
         { label: 'Aufgabe', value: scout.path.length > 0 ? 'Unterwegs' : 'Bereit' },
@@ -591,7 +668,28 @@ function buildingSelection(building: Building): HudSelection {
     for (let good = 0; good < GOOD_COUNT; good++) if (spec.upgradeCost[good] > 0) cost.push(`${spec.upgradeCost[good]} ${GOOD_NAMES[good as keyof typeof GOOD_NAMES]}`);
     lines.push({ label: 'Ausbau', value: `${BUILDING_SPECS[spec.upgradesTo].name} · ${cost.join(', ')}` });
   }
-  return { kind: 'building', title: displayBuildingName(building.type), subtitle: `Gebäude #${building.id}`, lines };
+  return {
+    kind: 'building',
+    title: displayBuildingName(building.type),
+    subtitle: `Gebäude #${building.id}`,
+    lines,
+    action: spec.upgradesTo === -1 ? undefined : {
+      label: canUpgrade(world, building.x, building.y)
+        ? `Zu ${BUILDING_SPECS[spec.upgradesTo].name} ausbauen`
+        : 'Ausbau noch nicht bezahlbar',
+      enabled: canUpgrade(world, building.x, building.y),
+    },
+  };
+}
+
+function upgradeSelection(): void {
+  if (!selectedTile) return;
+  if (!canUpgrade(world, selectedTile.x, selectedTile.y)) {
+    hud.toast('Für diesen Ausbau fehlen noch Waren.', 'warning');
+    return;
+  }
+  input.enqueue({ t: 'upgrade', x: selectedTile.x, y: selectedTile.y });
+  hud.toast('Ausbau beauftragt.', 'success');
 }
 
 function displayBuildingName(type: BuildingType): string {
@@ -605,7 +703,9 @@ function displayBuildingName(type: BuildingType): string {
 function explainAttempt(mode: Mode, x: number, y: number): void {
   const type = BUILD_TYPE[mode];
   if (type !== undefined) {
-    if (!canBuildInRun(world, type, x, y)) {
+    if (!isBuildingUnlocked(world, type)) {
+      hud.toast('Dieses Gebäude wird durch die nächsten Siedlungsziele freigeschaltet.', 'warning');
+    } else if (!canBuildInRun(world, type, x, y)) {
       hud.toast(world.state.run.phase === RunPhase.Voyage
         ? (type === BuildingType.Storehouse
           ? 'Das Lager muss nahe am Expeditionsschiff stehen.'

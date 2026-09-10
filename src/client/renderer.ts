@@ -26,6 +26,7 @@ import {
   terrainMacroMood,
   terrainTintForMood,
 } from './terrain-style';
+import { fogBlockFullyExplored } from './visibility';
 import {
   BUILDING_COLOR,
   CARRIER_COLOR,
@@ -489,7 +490,7 @@ export class Renderer {
     if (hover) this.drawPreview(hover);
   }
 
-  /** Unbekannte Kacheln werden als zusammenhaengender Kartenrand verdeckt. */
+  /** Unbekannte Kacheln werden vollständig blickdicht verdeckt. */
   private drawExplorationFog(): void {
     const run = this.world.state.run;
     if (!run.fogEnabled) return;
@@ -497,11 +498,13 @@ export class Renderer {
     const v = cam.visibleTiles();
     const step = cam.zoom < 4 ? 4 : cam.zoom < 8 ? 2 : 1;
     ctx.save();
-    ctx.fillStyle = 'rgba(8, 14, 20, 0.94)';
+    // Volle Deckung ist Spielmechanik, nicht nur Stimmung: Auch helle
+    // Küsten, Bäume und Gebäude dürfen darunter keine Silhouette verraten.
+    ctx.fillStyle = '#071018';
     ctx.beginPath();
     for (let y = v.y0; y <= v.y1; y += step) {
       for (let x = v.x0; x <= v.x1; x += step) {
-        if (run.explored.has(tileKey(x, y))) continue;
+        if (fogBlockFullyExplored(run.explored, x, y, step)) continue;
         const sx = Math.floor(cam.worldToScreenX(x));
         const sy = Math.floor(cam.worldToScreenY(y));
         const sx1 = Math.ceil(cam.worldToScreenX(x + step));

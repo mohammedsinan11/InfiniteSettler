@@ -5,6 +5,7 @@ import {
   smoothedVegetationTile,
   terrainMacroTint,
 } from '../src/client/terrain-style';
+import { fogBlockFullyExplored } from '../src/client/visibility';
 
 describe('Terrain-Stil', () => {
   it('mischt jede Materialgrenze nur in eine Richtung', () => {
@@ -41,5 +42,12 @@ describe('Terrain-Stil', () => {
     expect(smoothedVegetationTile(Tile.Forest, 13, 25)).toBe(Tile.Forest);
     expect(smoothedVegetationTile(Tile.Grass, 13, 25)).toBe(Tile.Grass);
     expect(smoothedVegetationTile(Tile.Sand, 25, 25)).toBe(Tile.Sand);
+  });
+
+  it('öffnet grobe Fog-Blöcke erst wenn jede Kachel entdeckt ist', () => {
+    const explored = new Set(['4,8', '5,8', '4,9']);
+    expect(fogBlockFullyExplored(explored, 4, 8, 2)).toBe(false);
+    explored.add('5,9');
+    expect(fogBlockFullyExplored(explored, 4, 8, 2)).toBe(true);
   });
 });
