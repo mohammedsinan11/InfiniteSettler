@@ -24,6 +24,8 @@ import {
   type RunState,
   type Scout,
   type Ship,
+  type Wanderer,
+  type WorldSite,
 } from './types';
 
 /**
@@ -57,6 +59,8 @@ export interface SnapshotRun {
   explored: string[];
   fogEnabled: boolean;
   landing: { x: number; y: number } | null;
+  sites?: WorldSite[];
+  wanderers?: Wanderer[];
 }
 
 const byId = (a: { id: number }, b: { id: number }): number => a.id - b.id;
@@ -85,6 +89,8 @@ export function serialize(world: World): Snapshot {
       explored: Array.from(s.run.explored).sort(),
       fogEnabled: s.run.fogEnabled,
       landing: s.run.landing ? { ...s.run.landing } : null,
+      sites: s.run.sites.map(cloneWorldSite).sort(byId),
+      wanderers: s.run.wanderers.map(cloneWanderer).sort(byId),
     },
   };
 }
@@ -200,6 +206,8 @@ const cloneRun = (run: SnapshotRun | undefined): RunState => {
     explored: new Set(),
     fogEnabled: false,
     landing: null,
+    sites: [],
+    wanderers: [],
   };
   return {
     phase: run.phase === RunPhase.Voyage ? RunPhase.Voyage : RunPhase.Settled,
@@ -208,8 +216,32 @@ const cloneRun = (run: SnapshotRun | undefined): RunState => {
     explored: new Set(run.explored ?? []),
     fogEnabled: Boolean(run.fogEnabled),
     landing: run.landing ? { x: run.landing.x, y: run.landing.y } : null,
+    sites: (run.sites ?? []).map(cloneWorldSite).sort(byId),
+    wanderers: (run.wanderers ?? []).map(cloneWanderer).sort(byId),
   };
 };
+
+const cloneWorldSite = (site: WorldSite): WorldSite => ({
+  id: site.id,
+  kind: site.kind,
+  x: site.x,
+  y: site.y,
+  discoveredTick: site.discoveredTick ?? -1,
+  visitedTick: site.visitedTick ?? -1,
+});
+
+const cloneWanderer = (wanderer: Wanderer): Wanderer => ({
+  id: wanderer.id,
+  kind: wanderer.kind,
+  x: wanderer.x,
+  y: wanderer.y,
+  heading: wanderer.heading ?? 2,
+  path: wanderer.path.slice(),
+  pathIdx: wanderer.pathIdx,
+  homeX: wanderer.homeX,
+  homeY: wanderer.homeY,
+  nextDecisionTick: wanderer.nextDecisionTick ?? 0,
+});
 
 const cloneScout = (scout: Scout | null | undefined): Scout | null =>
   !scout ? null : {

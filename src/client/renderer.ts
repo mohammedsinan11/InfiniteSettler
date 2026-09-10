@@ -17,7 +17,18 @@ import { hash2i } from '../sim/hash';
 import { FP_ONE } from '../sim/fixed';
 import { buildingIdAt, getTile, hasRoad, type World } from '../sim/state';
 import { generateTile, Tile, waterDepth } from '../sim/terrain';
-import { BUILDING_SPECS, BuildingType, GOOD_COUNT, type Building, type Carrier, type Ship } from '../sim/types';
+import {
+  BUILDING_SPECS,
+  BuildingType,
+  GOOD_COUNT,
+  WandererKind,
+  WorldSiteKind,
+  type Building,
+  type Carrier,
+  type Ship,
+  type Wanderer,
+  type WorldSite,
+} from '../sim/types';
 import type { CarrierDirection, GameAssets, TerrainSprite } from './assets';
 import type { Camera } from './camera';
 import {
@@ -199,6 +210,8 @@ type SceneObject =
   | { kind: 'scatter'; x: number; y: number; image: HTMLImageElement }
   | { kind: 'tree'; x: number; y: number; image: HTMLImageElement }
   | { kind: 'resource'; x: number; y: number; image: HTMLImageElement }
+  | { kind: 'site'; x: number; y: number; site: WorldSite }
+  | { kind: 'wanderer'; x: number; y: number; wanderer: Wanderer }
   | { kind: 'building'; x: number; y: number; building: Building }
   | { kind: 'carrier'; x: number; y: number; carrier: Carrier };
 
@@ -234,6 +247,7 @@ export class Renderer {
   /** Das Gruenderschiff hat keine Entity-ID und daher seinen eigenen Geist. */
   private expeditionGhost: Ghost | null = null;
   private scoutGhost: Ghost | null = null;
+  private wandererGhosts = new Map<number, Ghost>();
   private textureSeed: number;
 
   pendingChunks = 0;
@@ -445,6 +459,7 @@ export class Renderer {
     this.ghosts.clear();
     this.expeditionGhost = null;
     this.scoutGhost = null;
+    this.wandererGhosts.clear();
   }
 
   /** Vor jedem Sim-Tick aufrufen: aktuelle Positionen werden zum Startpunkt. */
@@ -456,6 +471,11 @@ export class Renderer {
       : null;
     const scout = this.world.state.run.scout;
     this.scoutGhost = scout ? { px: scout.x / FP_ONE, py: scout.y / FP_ONE } : null;
+    for (const wanderer of this.world.state.run.wanderers) {
+      const g = this.wandererGhosts.get(wanderer.id);
+      if (g) { g.px = wanderer.x / FP_ONE; g.py = wanderer.y / FP_ONE; }
+      else this.wandererGhosts.set(wanderer.id, { px: wanderer.x / FP_ONE, py: wanderer.y / FP_ONE });
+    }
     for (const sh of this.world.state.ships.values()) {
       const g = this.ghosts.get(sh.id);
       if (g) { g.px = sh.x / FP_ONE; g.py = sh.y / FP_ONE; }
@@ -472,6 +492,11 @@ export class Renderer {
     }
     for (const id of this.ghosts.keys()) {
       if (!carriers.has(id) && !this.world.state.ships.has(id)) this.ghosts.delete(id);
+    }
+    for (const id of this.wandererGhosts.keys()) {
+      if (!this.world.state.run.wanderers.some((wanderer) => wanderer.id === id)) {
+        this.wandererGhosts.delete(id);
+      }
     }
   }
 
@@ -1059,6 +1084,24 @@ export class Renderer {
 
     if (cam.zoom >= SCENERY_MIN_ZOOM) this.collectScenery(v, objects);
 
+    for (const site of this.world.state.run.sites) {
+      if (site.x < v.x0 - 2 || site.x > v.x1 + 2 || site.y < v.y0 - 2 || site.y > v.y1 + 2) continue;
+      objects.push({ kind: 'site', x: site.x, y: site.y, site });
+    }
+
+    for (const wanderer of this.world.state.run.wanderers) {
+      const wx = wanderer.x / FP_ONE;
+      const wy = wanderer.y / FP_ONE;
+      if (wx < v.x0 - 1 || wx > v.x1 + 1 || wy < v.y0 - 2 || wy > v.y1 + 1) continue;
+      const ghost = this.wandererGhosts.get(wanderer.id);
+      objects.push({
+        kind: 'wanderer',
+        x: ghost ? ghost.px + (wx - ghost.px) * alpha : wx,
+        y: ghost ? ghost.py + (wy - ghost.py) * alpha : wy,
+        wanderer,
+      });
+    }
+
     for (const b of this.world.state.buildings.values()) {
       if (b.x < v.x0 - 2 || b.x > v.x1 + 2 || b.y < v.y0 - 3 || b.y > v.y1 + 1) continue;
       objects.push({ kind: 'building', x: b.x, y: b.y, building: b });
@@ -1120,6 +1163,12 @@ export class Renderer {
           break;
         case 'resource':
           this.drawBottomCentered(object.image, object.x + 0.5, object.y + 0.95, cam.zoom * 1.35);
+          break;
+        case 'site':
+          this.drawWorldSite(object.site);
+          break;
+        case 'wanderer':
+          this.drawWanderer(object.wanderer, object.x, object.y);
           break;
         case 'building':
           this.drawBuilding(object.building);
@@ -1587,6 +1636,153 @@ export class Renderer {
     }
   }
 
+  /** Kleine, klar lesbare Landmarken bis eigene Fraktionssprites vorliegen. */
+  private drawWorldSite(site: WorldSite): void {
+    const { ctx, cam } = this;
+    const z = cam.zoom;
+    const cx = cam.worldToScreenX(site.x + 0.5);
+    const foot = cam.worldToScreenY(site.y + 0.92);
+    ctx.save();
+    ctx.translate(cx, foot);
+    ctx.lineJoin = 'round';
+
+    // Gemeinsamer Bodenschatten verankert die Symbole im Terrain.
+    ctx.fillStyle = 'rgba(16,18,16,.34)';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, z * .62, z * .2, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (site.kind === WorldSiteKind.Ruin) {
+      ctx.fillStyle = '#716f66';
+      ctx.strokeStyle = '#343832';
+      ctx.lineWidth = Math.max(1, z * .045);
+      ctx.fillRect(-z * .48, -z * .3, z * .28, z * .28);
+      ctx.strokeRect(-z * .48, -z * .3, z * .28, z * .28);
+      ctx.fillStyle = '#9c957f';
+      ctx.beginPath();
+      ctx.moveTo(-z * .38, -z * .3);
+      ctx.lineTo(-z * .15, -z * .82);
+      ctx.lineTo(z * .05, -z * .3);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#5e605a';
+      ctx.fillRect(z * .12, -z * .56, z * .24, z * .52);
+      ctx.strokeRect(z * .12, -z * .56, z * .24, z * .52);
+      ctx.fillStyle = '#282c29';
+      ctx.beginPath();
+      ctx.arc(z * .24, -z * .36, z * .075, Math.PI, 0);
+      ctx.lineTo(z * .315, -z * .18);
+      ctx.lineTo(z * .165, -z * .18);
+      ctx.closePath();
+      ctx.fill();
+    } else if (site.kind === WorldSiteKind.Tidewatch) {
+      ctx.fillStyle = '#284f58';
+      ctx.strokeStyle = '#18343a';
+      ctx.lineWidth = Math.max(1, z * .045);
+      ctx.beginPath();
+      ctx.moveTo(-z * .48, -z * .04);
+      ctx.lineTo(-z * .12, -z * .66);
+      ctx.lineTo(z * .28, -z * .04);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.strokeStyle = '#664322';
+      ctx.beginPath();
+      ctx.moveTo(z * .33, -z * .02);
+      ctx.lineTo(z * .33, -z * 1.02);
+      ctx.stroke();
+      ctx.fillStyle = '#d5b760';
+      ctx.beginPath();
+      ctx.moveTo(z * .34, -z * .98);
+      ctx.lineTo(z * .7, -z * .82);
+      ctx.lineTo(z * .34, -z * .65);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#76571c';
+      ctx.stroke();
+    } else {
+      ctx.strokeStyle = '#526452';
+      ctx.fillStyle = '#858a77';
+      ctx.lineWidth = Math.max(1, z * .04);
+      for (const [dx, height] of [[-.42, .56], [0, .82], [.42, .5]] as const) {
+        ctx.fillRect(z * (dx - .09), -z * height, z * .18, z * height);
+        ctx.strokeRect(z * (dx - .09), -z * height, z * .18, z * height);
+      }
+      ctx.strokeStyle = '#9bd08a';
+      ctx.lineWidth = Math.max(1.5, z * .065);
+      ctx.beginPath();
+      ctx.arc(0, -z * .13, z * .34, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(157,220,137,.3)';
+      ctx.fill();
+    }
+
+    // Ein entdeckter, noch nicht besuchter Ort traegt ein dezentes Signal.
+    if (site.discoveredTick >= 0 && site.visitedTick < 0 && z >= 10) {
+      ctx.fillStyle = '#f0d477';
+      ctx.strokeStyle = '#4a3518';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(0, -z * 1.12, Math.max(3, z * .12), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  private drawWanderer(wanderer: Wanderer, x: number, y: number): void {
+    const { ctx, cam } = this;
+    const z = cam.zoom;
+    if (wanderer.kind === WandererKind.Wayfarer) {
+      const direction = FACING_NAME[wanderer.heading];
+      const image = this.assets.carrier[direction];
+      if (image && z >= 5) this.drawBottomCentered(image, x + .5, y + .9, z * .7);
+      else {
+        ctx.fillStyle = '#d1aa58';
+        ctx.beginPath();
+        ctx.arc(cam.worldToScreenX(x + .5), cam.worldToScreenY(y + .62), Math.max(2, z * .17), 0, Math.PI * 2);
+        ctx.fill();
+      }
+      return;
+    }
+
+    const sx = cam.worldToScreenX(x + .5);
+    const sy = cam.worldToScreenY(y + .78);
+    ctx.save();
+    ctx.translate(sx, sy);
+    const facesLeft = wanderer.heading === 0 || wanderer.heading === 3;
+    ctx.scale(facesLeft ? -1 : 1, 1);
+    ctx.strokeStyle = '#2c2119';
+    ctx.lineWidth = Math.max(1, z * .04);
+    ctx.fillStyle = wanderer.kind === WandererKind.Deer ? '#a56e3f' : '#58483a';
+    ctx.beginPath();
+    ctx.ellipse(0, -z * .2, z * .34, z * .2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.ellipse(z * .32, -z * .36, z * .16, z * .13, -.35, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-z * .18, -z * .08); ctx.lineTo(-z * .21, z * .16);
+    ctx.moveTo(z * .15, -z * .08); ctx.lineTo(z * .19, z * .16);
+    ctx.stroke();
+    if (wanderer.kind === WandererKind.Deer && z >= 11) {
+      ctx.beginPath();
+      ctx.moveTo(z * .37, -z * .47); ctx.lineTo(z * .42, -z * .66);
+      ctx.moveTo(z * .42, -z * .59); ctx.lineTo(z * .52, -z * .65);
+      ctx.moveTo(z * .42, -z * .59); ctx.lineTo(z * .34, -z * .69);
+      ctx.stroke();
+    } else if (wanderer.kind === WandererKind.Boar) {
+      ctx.fillStyle = '#ded2b0';
+      ctx.beginPath();
+      ctx.moveTo(z * .43, -z * .31); ctx.lineTo(z * .56, -z * .25); ctx.lineTo(z * .45, -z * .2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
   private carrierDirection(c: Carrier, x: number, y: number): CarrierDirection {
     const targetX = c.path[c.pathIdx * 2];
     const targetY = c.path[c.pathIdx * 2 + 1];
@@ -1659,6 +1855,8 @@ const sceneOrder = (kind: SceneObject['kind']): number => {
     case 'scatter': return 0;
     case 'tree': return 0;
     case 'resource': return 1;
+    case 'site': return 2;
+    case 'wanderer': return 3;
     case 'building': return 2;
     case 'carrier': return 3;
   }

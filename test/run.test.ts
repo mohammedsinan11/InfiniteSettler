@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { applyCommand } from '../src/sim/commands';
 import { FP_ONE } from '../src/sim/fixed';
+import { tileKey } from '../src/sim/coords';
 import {
   beginExpedition,
   canBuildInRun,
@@ -11,6 +12,7 @@ import {
   stepRun,
 } from '../src/sim/run';
 import { deserialize, serialize } from '../src/sim/serialize';
+import { step } from '../src/sim/tick';
 import { canPlaceBuilding, createWorld, getTile } from '../src/sim/state';
 import { Tile } from '../src/sim/terrain';
 import { BuildingType, Good, RunPhase } from '../src/sim/types';
@@ -124,6 +126,67 @@ describe('Expeditionsdurchlauf', () => {
     expect(isBuildingUnlocked(world, BuildingType.Bakery)).toBe(false);
   });
 
+  it('setzt Fraktionsorte, Ruinen und neutrale Wanderer reproduzierbar', () => {
+    const a = settledWorld(31337);
+    const b = settledWorld(31337);
+
+    expect(a.state.run.sites.length).toBeGreaterThanOrEqual(4);
+    expect(a.state.run.sites).toEqual(b.state.run.sites);
+    expect(a.state.run.wanderers.length).toBeGreaterThanOrEqual(4);
+    expect(a.state.run.wanderers).toEqual(b.state.run.wanderers);
+    expect(new Set(a.state.run.sites.map((site) => site.kind)).size).toBe(3);
+  });
+
+  it('findet die lebendige Welt auch fuer unterschiedliche Kartenformen', () => {
+    for (const seed of [1, 7, 99, 456, 8080, 31337]) {
+      const world = settledWorld(seed);
+      expect(world.state.run.sites.length, `Seed ${seed}`).toBeGreaterThanOrEqual(4);
+      expect(new Set(world.state.run.sites.map((site) => site.kind)).size, `Seed ${seed}`).toBe(3);
+      expect(world.state.run.wanderers.length, `Seed ${seed}`).toBeGreaterThanOrEqual(4);
+    }
+  });
+
+  it('entdeckt Weltorte ueber den echten Erkundungsnebel', () => {
+    const world = settledWorld(31337);
+    const site = world.state.run.sites[0];
+    expect(site.discoveredTick).toBe(-1);
+
+    world.state.run.explored.add(tileKey(site.x, site.y));
+    stepRun(world);
+    expect(site.discoveredTick).toBeGreaterThanOrEqual(1);
+  });
+
+  it('bewegt neutrale Bewohner deterministisch und speichert sie verlustfrei', () => {
+    const world = settledWorld(31337);
+    const parallel = settledWorld(31337);
+    const before = world.state.run.wanderers.map((wanderer) => [wanderer.x, wanderer.y]);
+    for (let i = 0; i < 420; i++) {
+      step(world);
+      step(parallel);
+    }
+    const after = world.state.run.wanderers.map((wanderer) => [wanderer.x, wanderer.y]);
+    expect(after).not.toEqual(before);
+    expect(world.state.run.wanderers).toEqual(parallel.state.run.wanderers);
+
+    const loaded = deserialize(JSON.parse(JSON.stringify(serialize(world))));
+    expect(loaded.state.run.sites).toEqual(world.state.run.sites);
+    expect(loaded.state.run.wanderers).toEqual(world.state.run.wanderers);
+  });
+
+  it('ruestet bestehende Expeditionsspielstaende ohne Weltobjekte nach', () => {
+    const world = settledWorld(31337);
+    const snapshot = serialize(world);
+    delete snapshot.run!.sites;
+    delete snapshot.run!.wanderers;
+    const loaded = deserialize(snapshot);
+    expect(loaded.state.run.sites).toEqual([]);
+    expect(loaded.state.run.wanderers).toEqual([]);
+
+    stepRun(loaded);
+    expect(loaded.state.run.sites.length).toBeGreaterThan(0);
+    expect(loaded.state.run.wanderers.length).toBeGreaterThan(0);
+  });
+
   it('laesst bestehende Sandbox-Spielstaende mit vollem Baukasten kompatibel', () => {
     const world = createWorld(7);
     for (const type of Object.values(BuildingType)) {
@@ -131,6 +194,14 @@ describe('Expeditionsdurchlauf', () => {
     }
   });
 });
+
+function settledWorld(seed: number) {
+  const world = createWorld(seed);
+  beginExpedition(world);
+  const site = landingSite(world);
+  applyCommand(world, { t: 'build', bt: BuildingType.Storehouse, x: site.x, y: site.y });
+  return world;
+}
 
 function adjacentWater(world: ReturnType<typeof createWorld>, x: number, y: number) {
   for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0]] as const) {

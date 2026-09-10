@@ -318,6 +318,7 @@ function doRoad(world: World, x: number, y: number): boolean {
   if (!isExplored(world, x, y)) return false;
   const key = tileKey(x, y);
   if (s.roads.has(key) || s.buildingAt.has(key)) return false;
+  if (s.run.sites.some((site) => site.x === x && site.y === y)) return false;
   if (!isBuildable(getTile(world, x, y))) return false;
   s.roads.add(key);
   markRoadDirty(world, x, y);

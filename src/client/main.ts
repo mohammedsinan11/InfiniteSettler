@@ -28,6 +28,7 @@ import {
   type World,
 } from '../sim/state';
 import { isBuildable, TILE_NAMES, Tile } from '../sim/terrain';
+import { wandererAt, worldSiteAt } from '../sim/living-world';
 import {
   beginExpedition,
   canBuildInRun,
@@ -36,7 +37,8 @@ import {
   isExplored,
 } from '../sim/run';
 import {
-  BUILDING_SPECS, BuildingType, GOOD_COUNT, GOOD_NAMES, RunPhase, type Building,
+  BUILDING_SPECS, BuildingType, GOOD_COUNT, GOOD_NAMES, RunPhase,
+  WandererKind, WorldSiteKind, type Building, type Wanderer, type WorldSite,
 } from '../sim/types';
 import { TICK_MS, step } from '../sim/tick';
 import { Camera } from './camera';
@@ -558,6 +560,8 @@ function currentObjective(): HudObjective {
       actionMode: Mode.Pan,
     };
   }
+  const worldNotice = currentWorldNotice();
+  if (worldNotice) return worldNotice;
   if (world.state.run.fogEnabled && (world.state.run.scout?.exploredSteps ?? 0) < 4) {
     return {
       eyebrow: 'Erkundung · Das unbekannte Land',
@@ -616,6 +620,54 @@ function currentObjective(): HudObjective {
   };
 }
 
+const SITE_META: Record<WorldSite['kind'], {
+  name: string;
+  faction: string;
+  emblem: string;
+  discovery: string;
+}> = {
+  [WorldSiteKind.Ruin]: {
+    name: 'Vergessene Ruine', faction: 'Unbekannte Herkunft', emblem: '⌂',
+    discovery: 'Zwischen zerbrochenen Mauern glimmt ein altes Siegel. Dieser Ort birgt eine Geschichte – und vermutlich Beute.',
+  },
+  [WorldSiteKind.Tidewatch]: {
+    name: 'Wacht der Gezeiten', faction: 'Küstenbund', emblem: '⚓',
+    discovery: 'Goldene Banner stehen über einem fremden Küstenlager. Der Küstenbund beobachtet diese Gewässer.',
+  },
+  [WorldSiteKind.GroveCircle]: {
+    name: 'Kreis der Mooshüter', faction: 'Mooshüter', emblem: '✦',
+    discovery: 'Steine und grünes Licht markieren einen bewohnten Hain. Die Mooshüter dulden Besucher, aber keine Holzfäller.',
+  },
+};
+
+function currentWorldNotice(): HudObjective | null {
+  let site: WorldSite | null = null;
+  let eventTick = -1;
+  let visited = false;
+  for (const candidate of world.state.run.sites) {
+    const candidateTick = Math.max(candidate.discoveredTick, candidate.visitedTick);
+    if (candidateTick <= eventTick || candidateTick < 0) continue;
+    site = candidate;
+    eventTick = candidateTick;
+    visited = candidate.visitedTick >= candidate.discoveredTick && candidate.visitedTick >= 0;
+  }
+  // Auch bei 4x Tempo lange genug lesbar, ohne das normale Siedlungsziel
+  // dauerhaft zu verdraengen.
+  if (!site || world.state.tick - eventTick > 1200) return null;
+  const meta = SITE_META[site.kind];
+  return visited ? {
+    eyebrow: `Weltnachricht · ${meta.faction}`,
+    title: `${meta.name} erreicht`,
+    reason: 'Der Späher hat einen sicheren Zugang gefunden. Fremde Zeichen deuten auf mehrere Wege und unterschiedliche Beute hin.',
+    progress: 1,
+  } : {
+    eyebrow: `Weltnachricht · ${meta.faction}`,
+    title: meta.name,
+    reason: meta.discovery,
+    progress: 1,
+  };
+}
+
 function currentSelection(): HudSelection | null {
   if (selectedScout && world.state.run.scout) {
     const scout = world.state.run.scout;
@@ -632,18 +684,48 @@ function currentSelection(): HudSelection | null {
     kind: 'tile', title: 'Unentdeckt', subtitle: 'Jenseits des Kartenrandes',
     lines: [{ label: 'Hinweis', value: 'Erkunde die Gegend mit deiner Expedition.' }],
   };
+  const site = worldSiteAt(world, selectedTile.x, selectedTile.y);
+  if (site) return siteSelection(site);
   const building = buildingAtTile(world, selectedTile.x, selectedTile.y);
-  if (!building) {
-    return {
-      kind: 'tile', title: TILE_NAMES[getTile(world, selectedTile.x, selectedTile.y)],
-      subtitle: `Kachel ${selectedTile.x}, ${selectedTile.y}`,
-      lines: [
-        { label: 'Bebaubar', value: isBuildable(getTile(world, selectedTile.x, selectedTile.y)) ? 'Ja' : 'Nein' },
-        { label: 'Straße', value: hasRoad(world, selectedTile.x, selectedTile.y) ? 'Vorhanden' : 'Keine' },
-      ],
-    };
-  }
-  return buildingSelection(building);
+  if (building) return buildingSelection(building);
+  const wanderer = wandererAt(world, selectedTile.x, selectedTile.y);
+  if (wanderer) return wandererSelection(wanderer);
+  return {
+    kind: 'tile', title: TILE_NAMES[getTile(world, selectedTile.x, selectedTile.y)],
+    subtitle: `Kachel ${selectedTile.x}, ${selectedTile.y}`,
+    lines: [
+      { label: 'Bebaubar', value: isBuildable(getTile(world, selectedTile.x, selectedTile.y)) ? 'Ja' : 'Nein' },
+      { label: 'Straße', value: hasRoad(world, selectedTile.x, selectedTile.y) ? 'Vorhanden' : 'Keine' },
+    ],
+  };
+}
+
+function siteSelection(site: WorldSite): HudSelection {
+  const meta = SITE_META[site.kind];
+  return {
+    kind: 'tile', emblem: meta.emblem, title: meta.name, subtitle: `${meta.faction} · Weltort`,
+    lines: [
+      { label: 'Standort', value: `${site.x}, ${site.y}` },
+      { label: 'Beziehung', value: site.kind === WorldSiteKind.Ruin ? 'Ungeklärt' : 'Neutral' },
+      { label: 'Zustand', value: site.visitedTick >= 0 ? 'Vom Späher erreicht' : 'Noch nicht untersucht' },
+    ],
+  };
+}
+
+function wandererSelection(wanderer: Wanderer): HudSelection {
+  const meta = {
+    [WandererKind.Deer]: { name: 'Waldhirsch', role: 'Wildtier', emblem: '♞' },
+    [WandererKind.Boar]: { name: 'Wildschwein', role: 'Wildtier', emblem: '◆' },
+    [WandererKind.Wayfarer]: { name: 'Fremder Wanderer', role: 'Neutraler Reisender', emblem: '♟' },
+  }[wanderer.kind];
+  return {
+    kind: 'unit', emblem: meta.emblem, title: meta.name, subtitle: `${meta.role} · zieht frei umher`,
+    lines: [
+      { label: 'Standort', value: `${Math.round(wanderer.x / FP_ONE)}, ${Math.round(wanderer.y / FP_ONE)}` },
+      { label: 'Verhalten', value: wanderer.path.length > 0 ? 'Auf Wanderschaft' : 'Rastet' },
+      { label: 'Haltung', value: 'Neutral' },
+    ],
+  };
 }
 
 function buildingSelection(building: Building): HudSelection {

@@ -13,6 +13,7 @@ export interface HudSelection {
   kind: 'tile' | 'building' | 'unit';
   title: string;
   subtitle: string;
+  emblem?: string;
   lines: readonly { label: string; value: string }[];
   action?: { label: string; enabled: boolean };
 }
@@ -439,9 +440,9 @@ export class Hud {
     this.lastSelectionKey = key;
     this.inspector.hidden = selection === null;
     if (!selection) return;
-    const portrait = selection.kind === 'unit' ? this.assets.carrier.down : null;
+    const portrait = selection.kind === 'unit' && !selection.emblem ? this.assets.carrier.down : null;
     this.inspector.classList.toggle('is-unit-selection', selection.kind === 'unit');
-    this.inspector.innerHTML = `<span class="is-kicker">Auswahl</span><div class="is-selection-head">${portrait ? `<span class="is-selection-portrait"><img src="${portrait.src}" alt=""></span>` : ''}<div><h2>${selection.title}</h2><p>${selection.subtitle}</p></div></div><dl>${selection.lines.map((line) => `<div><dt>${line.label}</dt><dd>${line.value}</dd></div>`).join('')}</dl>${selection.action ? `<button type="button" class="is-selection-action" ${selection.action.enabled ? '' : 'disabled'}>${selection.action.label}</button>` : ''}`;
+    this.inspector.innerHTML = `<span class="is-kicker">Auswahl</span><div class="is-selection-head">${portrait ? `<span class="is-selection-portrait"><img src="${portrait.src}" alt=""></span>` : selection.emblem ? `<span class="is-selection-emblem" aria-hidden="true">${selection.emblem}</span>` : ''}<div><h2>${selection.title}</h2><p>${selection.subtitle}</p></div></div><dl>${selection.lines.map((line) => `<div><dt>${line.label}</dt><dd>${line.value}</dd></div>`).join('')}</dl>${selection.action ? `<button type="button" class="is-selection-action" ${selection.action.enabled ? '' : 'disabled'}>${selection.action.label}</button>` : ''}`;
     this.inspector.querySelector<HTMLButtonElement>('.is-selection-action')?.addEventListener('click', this.onSelectionAction);
   }
 

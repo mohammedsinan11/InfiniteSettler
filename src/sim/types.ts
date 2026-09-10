@@ -609,6 +609,46 @@ export interface Scout {
   lastRevealY: number;
 }
 
+/** Dauerhafte Orte der lebendigen Welt. Zahlen bleiben speicherstabil. */
+export const WorldSiteKind = {
+  Ruin: 0,
+  Tidewatch: 1,
+  GroveCircle: 2,
+} as const;
+export type WorldSiteKind = (typeof WorldSiteKind)[keyof typeof WorldSiteKind];
+
+export interface WorldSite {
+  id: number;
+  kind: WorldSiteKind;
+  x: number;
+  y: number;
+  /** -1 bis der Ort erstmals aus dem Nebel aufgedeckt wurde. */
+  discoveredTick: number;
+  /** Bereits vorbereitet fuer die spaeteren Begegnungsentscheidungen. */
+  visitedTick: number;
+}
+
+/** Neutrale Bewohner bewegen sich unabhaengig von Wirtschaftseinheiten. */
+export const WandererKind = {
+  Deer: 0,
+  Boar: 1,
+  Wayfarer: 2,
+} as const;
+export type WandererKind = (typeof WandererKind)[keyof typeof WandererKind];
+
+export interface Wanderer {
+  id: number;
+  kind: WandererKind;
+  x: Fixed;
+  y: Fixed;
+  heading: 0 | 1 | 2 | 3;
+  path: number[];
+  pathIdx: number;
+  homeX: number;
+  homeY: number;
+  nextDecisionTick: number;
+}
+
 export interface RunState {
   phase: RunPhase;
   expedition: Expedition | null;
@@ -617,4 +657,7 @@ export interface RunState {
   explored: Set<string>;
   fogEnabled: boolean;
   landing: { x: number; y: number } | null;
+  /** Seed-abhaengige Landmarken und neutrale Wesen des aktuellen Runs. */
+  sites: WorldSite[];
+  wanderers: Wanderer[];
 }

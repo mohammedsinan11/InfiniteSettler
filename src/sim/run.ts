@@ -8,6 +8,7 @@
 
 import { NEIGHBORS, tileKey } from './coords';
 import { FP_ONE, isqrt } from './fixed';
+import { ensureLivingWorld, stepLivingWorld } from './living-world';
 import { findPath } from './pathfind';
 import { getTile, isSailable, type World } from './state';
 import { generateTile, Tile } from './terrain';
@@ -88,6 +89,8 @@ export function beginExpedition(world: World): void {
     explored: new Set(),
     fogEnabled: true,
     landing: null,
+    sites: [],
+    wanderers: [],
   };
   revealAround(run, x, y, EXPEDITION_REVEAL_RADIUS);
   world.state.run = run;
@@ -114,6 +117,7 @@ export function stepRun(world: World): void {
   const expedition = run.expedition;
   if (run.phase === RunPhase.Settled) {
     stepScout(world);
+    stepLivingWorld(world);
     return;
   }
   if (!expedition) return;
@@ -213,6 +217,7 @@ export function completeLanding(world: World, x: number, y: number): void {
   };
   revealAround(run, x + 1, y + 1, EXPEDITION_REVEAL_RADIUS + 3);
   revealAround(run, scoutX, scoutY, SCOUT_REVEAL_RADIUS);
+  ensureLivingWorld(world);
 }
 
 /** Erteilt dem ausgewaehlten Spaehtrupp einen Landweg. */

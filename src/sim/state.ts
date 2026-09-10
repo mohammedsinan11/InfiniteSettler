@@ -76,6 +76,8 @@ export function createWorld(seed: number): World {
         explored: new Set(),
         fogEnabled: false,
         landing: null,
+        sites: [],
+        wanderers: [],
       },
     },
     chunks: new ChunkStore(seed | 0),
@@ -139,6 +141,9 @@ export const isSailable = (world: World, x: number, y: number): boolean =>
 
 export function canPlaceOn(world: World, x: number, y: number): boolean {
   if (world.state.buildingAt.has(tileKey(x, y))) return false;
+  // Fraktionsorte und Ruinen sind dauerhafte Weltobjekte, keine Dekoration,
+  // die von einem spaeter gesetzten Gebaeude verschluckt werden darf.
+  if (world.state.run.sites.some((site) => site.x === x && site.y === y)) return false;
   return isBuildable(getTile(world, x, y));
 }
 
