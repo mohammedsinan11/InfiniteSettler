@@ -17,10 +17,12 @@ import {
   BUILDING_SPECS,
   GOOD_COUNT,
   Placement,
+  RunPhase,
   type Building,
   type BuildingType,
   type Carrier,
   type Ship,
+  type RunState,
 } from './types';
 
 export interface WorldState {
@@ -35,6 +37,8 @@ export interface WorldState {
   buildingAt: Map<string, number>;
   carriers: Map<number, Carrier>;
   ships: Map<number, Ship>;
+  /** Roguelike-Rahmen um die weiterhin deterministische Siedlungssimulation. */
+  run: RunState;
 }
 
 export interface World {
@@ -62,6 +66,16 @@ export function createWorld(seed: number): World {
       buildingAt: new Map(),
       carriers: new Map(),
       ships: new Map(),
+      // Der Simulationskern startet weiterhin als Sandbox. Der Client ruft
+      // fuer einen neuen Durchlauf beginExpedition auf; dadurch bleiben Tests
+      // und alte Werkzeuge kompatibel.
+      run: {
+        phase: RunPhase.Settled,
+        expedition: null,
+        explored: new Set(),
+        fogEnabled: false,
+        landing: null,
+      },
     },
     chunks: new ChunkStore(seed | 0),
     rng: new Rng(seed | 0),

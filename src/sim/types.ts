@@ -574,3 +574,34 @@ export const SHIP_SPEED = 1 << 14;
  * zwischen zwei Haefen hin und her.
  */
 export const SHIP_MIN_GAP = 3;
+
+/** Phase des aktuellen Roguelike-Durchlaufs. Zahlen bleiben speicherstabil. */
+export const RunPhase = {
+  Voyage: 0,
+  Settled: 1,
+} as const;
+export type RunPhase = (typeof RunPhase)[keyof typeof RunPhase];
+
+/** Das Gruenderschiff ist bewusst kein Handelsschiff der Wirtschaft. */
+export interface Expedition {
+  x: Fixed;
+  y: Fixed;
+  /** N, O, S, W wie NEIGHBORS - bleibt auch nach dem Anlegen erhalten. */
+  heading: 0 | 1 | 2 | 3;
+  path: number[];
+  pathIdx: number;
+  /** Verbleibende Seereise in ganzen Kachelschritten. */
+  supplies: number;
+  /** Letzte Kachel, von der aus der Entdeckungsradius aktualisiert wurde. */
+  lastRevealX: number;
+  lastRevealY: number;
+}
+
+export interface RunState {
+  phase: RunPhase;
+  expedition: Expedition | null;
+  /** Entdeckte Kacheln; wird spaeter auch von Spaehern und Magie genutzt. */
+  explored: Set<string>;
+  fogEnabled: boolean;
+  landing: { x: number; y: number } | null;
+}

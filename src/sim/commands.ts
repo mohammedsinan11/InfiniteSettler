@@ -19,12 +19,14 @@ import {
 } from './state';
 import { isBuildable } from './terrain';
 import { getTile } from './state';
+import { canBuildInRun, completeLanding, sailTo } from './run';
 import {
   BUILDING_SPECS,
   BuildingType,
   CarrierState,
   GOOD_COUNT,
   Good,
+  RunPhase,
   type Building,
   type Carrier,
 } from './types';
@@ -33,7 +35,8 @@ export type Command =
   | { t: 'build'; bt: BuildingType; x: number; y: number }
   | { t: 'road'; x: number; y: number }
   | { t: 'demolish'; x: number; y: number }
-  | { t: 'upgrade'; x: number; y: number };
+  | { t: 'upgrade'; x: number; y: number }
+  | { t: 'sail'; x: number; y: number };
 
 /**
  * Startausstattung des allerersten Gebaeudes.
@@ -65,6 +68,8 @@ export function applyCommand(world: World, cmd: Command): boolean {
       return doDemolish(world, cmd.x, cmd.y);
     case 'upgrade':
       return doUpgrade(world, cmd.x, cmd.y);
+    case 'sail':
+      return sailTo(world, cmd.x, cmd.y);
   }
 }
 
@@ -75,6 +80,7 @@ function doBuild(
   y: number,
 ): boolean {
   if (!canPlaceBuilding(world, bt, x, y)) return false;
+  if (!canBuildInRun(world, bt, x, y)) return false;
 
   const s = world.state;
   // isFirst haengt an nextId und nicht an buildings.size: sonst liesse
@@ -109,6 +115,9 @@ function doBuild(
   });
 
   spawnCrew(world, building, 0, 0);
+  if (isFirst && bt === BuildingType.Storehouse && s.run.phase === RunPhase.Voyage) {
+    completeLanding(world, x, y);
+  }
   return true;
 }
 
@@ -181,6 +190,7 @@ function spawnCrew(
  * laufenden Auftraege abbrechen - der Ausbau waere dann ein Rueckschritt.
  */
 function doUpgrade(world: World, x: number, y: number): boolean {
+  if (world.state.run.phase === RunPhase.Voyage) return false;
   const s = world.state;
   const id = buildingIdAt(world, x, y);
   if (id === undefined) return false;
@@ -228,6 +238,7 @@ export function canUpgrade(world: World, x: number, y: number): boolean {
  */
 export function canAfford(world: World, type: BuildingType): boolean {
   const s = world.state;
+  if (s.run.phase === RunPhase.Voyage) return type === BuildingType.Storehouse;
   if (s.nextId === 1) return true; // allererster Bau
   if (type === BuildingType.Storehouse && !hasStorehouse(s)) return true; // Rettung
   const cost = BUILDING_SPECS[type].cost;
@@ -300,6 +311,7 @@ const hasStorehouse = (s: World['state']): boolean => {
 
 function doRoad(world: World, x: number, y: number): boolean {
   const s = world.state;
+  if (s.run.phase === RunPhase.Voyage) return false;
   const key = tileKey(x, y);
   if (s.roads.has(key) || s.buildingAt.has(key)) return false;
   if (!isBuildable(getTile(world, x, y))) return false;

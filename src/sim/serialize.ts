@@ -14,7 +14,16 @@ import { fnv1a, hex8 } from './hash';
 import { Rng } from './rng';
 import type { World, WorldState } from './state';
 import type { Tile } from './terrain';
-import { BUILDING_SPECS, GOOD_COUNT, type Building, type Carrier, type Ship } from './types';
+import {
+  BUILDING_SPECS,
+  GOOD_COUNT,
+  RunPhase,
+  type Building,
+  type Carrier,
+  type Expedition,
+  type RunState,
+  type Ship,
+} from './types';
 
 /**
  * Version 2: Die Terraingenerierung wurde ueberarbeitet (Domain Warping,
@@ -36,6 +45,16 @@ export interface Snapshot {
   buildings: Building[];
   carriers: Carrier[];
   ships: Ship[];
+  /** Optional, damit Spielstaende aus der Siedlungsphase von Version 2 laden. */
+  run?: SnapshotRun;
+}
+
+export interface SnapshotRun {
+  phase: number;
+  expedition: Expedition | null;
+  explored: string[];
+  fogEnabled: boolean;
+  landing: { x: number; y: number } | null;
 }
 
 const byId = (a: { id: number }, b: { id: number }): number => a.id - b.id;
@@ -57,6 +76,13 @@ export function serialize(world: World): Snapshot {
       .sort(byId),
     carriers: Array.from(s.carriers.values()).map(cloneCarrier).sort(byId),
     ships: Array.from(s.ships.values()).map(cloneShip).sort(byId),
+    run: {
+      phase: s.run.phase,
+      expedition: cloneExpedition(s.run.expedition),
+      explored: Array.from(s.run.explored).sort(),
+      fogEnabled: s.run.fogEnabled,
+      landing: s.run.landing ? { ...s.run.landing } : null,
+    },
   };
 }
 
@@ -77,6 +103,7 @@ export function deserialize(snap: Snapshot): World {
     buildingAt: new Map(),
     carriers: new Map(),
     ships: new Map(),
+    run: cloneRun(snap.run),
   };
 
   for (const b of snap.buildings) {
@@ -148,6 +175,36 @@ const cloneShip = (sh: Ship): Ship => ({
   jobTo: sh.jobTo,
   home: sh.home,
 });
+
+const cloneExpedition = (expedition: Expedition | null): Expedition | null =>
+  expedition === null ? null : {
+    x: expedition.x,
+    y: expedition.y,
+    heading: expedition.heading ?? 2,
+    path: expedition.path.slice(),
+    pathIdx: expedition.pathIdx,
+    supplies: expedition.supplies,
+    lastRevealX: expedition.lastRevealX,
+    lastRevealY: expedition.lastRevealY,
+  };
+
+const cloneRun = (run: SnapshotRun | undefined): RunState => {
+  // Version-2-Spielstaende ohne Run-Daten waren bereits normale Siedlungen.
+  if (!run) return {
+    phase: RunPhase.Settled,
+    expedition: null,
+    explored: new Set(),
+    fogEnabled: false,
+    landing: null,
+  };
+  return {
+    phase: run.phase === RunPhase.Voyage ? RunPhase.Voyage : RunPhase.Settled,
+    expedition: cloneExpedition(run.expedition),
+    explored: new Set(run.explored ?? []),
+    fogEnabled: Boolean(run.fogEnabled),
+    landing: run.landing ? { x: run.landing.x, y: run.landing.y } : null,
+  };
+};
 
 const cloneCarrier = (c: Carrier): Carrier => ({
   id: c.id,

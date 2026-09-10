@@ -230,6 +230,8 @@ export class Renderer {
   private harborFacings = new Map<number, HarborFacing>();
   /** Positionen des vorherigen Ticks, fuer weiche Traegerbewegung. */
   private ghosts = new Map<number, Ghost>();
+  /** Das Gruenderschiff hat keine Entity-ID und daher seinen eigenen Geist. */
+  private expeditionGhost: Ghost | null = null;
   private textureSeed: number;
 
   pendingChunks = 0;
@@ -439,11 +441,16 @@ export class Renderer {
   invalidateAll(): void {
     this.cache.clear();
     this.ghosts.clear();
+    this.expeditionGhost = null;
   }
 
   /** Vor jedem Sim-Tick aufrufen: aktuelle Positionen werden zum Startpunkt. */
   snapshotCarriers(): void {
     const carriers = this.world.state.carriers;
+    const expedition = this.world.state.run.expedition;
+    this.expeditionGhost = expedition
+      ? { px: expedition.x / FP_ONE, py: expedition.y / FP_ONE }
+      : null;
     for (const sh of this.world.state.ships.values()) {
       const g = this.ghosts.get(sh.id);
       if (g) { g.px = sh.x / FP_ONE; g.py = sh.y / FP_ONE; }
@@ -472,7 +479,70 @@ export class Renderer {
     this.drawTerrain();
     this.drawRoads();
     this.drawWorldObjects(alpha);
+    this.drawExplorationFog();
+    this.drawExpedition(alpha);
     if (hover) this.drawPreview(hover);
+  }
+
+  /** Unbekannte Kacheln werden als zusammenhaengender Kartenrand verdeckt. */
+  private drawExplorationFog(): void {
+    const run = this.world.state.run;
+    if (!run.fogEnabled) return;
+    const { ctx, cam } = this;
+    const v = cam.visibleTiles();
+    const step = cam.zoom < 4 ? 4 : cam.zoom < 8 ? 2 : 1;
+    ctx.save();
+    ctx.fillStyle = 'rgba(8, 14, 20, 0.94)';
+    ctx.beginPath();
+    for (let y = v.y0; y <= v.y1; y += step) {
+      for (let x = v.x0; x <= v.x1; x += step) {
+        if (run.explored.has(tileKey(x, y))) continue;
+        const sx = Math.floor(cam.worldToScreenX(x));
+        const sy = Math.floor(cam.worldToScreenY(y));
+        const sx1 = Math.ceil(cam.worldToScreenX(x + step));
+        const sy1 = Math.ceil(cam.worldToScreenY(y + step));
+        ctx.rect(sx, sy, sx1 - sx, sy1 - sy);
+      }
+    }
+    ctx.fill();
+    ctx.restore();
+  }
+
+  private drawExpedition(alpha: number): void {
+    const expedition = this.world.state.run.expedition;
+    if (!expedition) return;
+    const x = expedition.x / FP_ONE;
+    const y = expedition.y / FP_ONE;
+    const drawX = this.expeditionGhost
+      ? this.expeditionGhost.px + (x - this.expeditionGhost.px) * alpha : x;
+    const drawY = this.expeditionGhost
+      ? this.expeditionGhost.py + (y - this.expeditionGhost.py) * alpha : y;
+    const { ctx, cam } = this;
+    const z = cam.zoom;
+
+    // Leiser Fokuskranz: das einzige steuerbare Objekt soll im Nebel sofort
+    // lesbar sein, ohne eine fremde UI-Markierung auf die Welt zu kleben.
+    ctx.save();
+    ctx.strokeStyle = 'rgba(225, 190, 105, 0.75)';
+    ctx.lineWidth = Math.max(1, z * 0.07);
+    ctx.beginPath();
+    ctx.ellipse(cam.worldToScreenX(drawX + .5), cam.worldToScreenY(drawY + .55),
+      z * .82, z * .4, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+
+    const image = this.assets.ship[FACING_NAME[expedition.heading]];
+    if (image) {
+      const h = z * 2.15;
+      const w = h * (image.naturalWidth / image.naturalHeight);
+      ctx.drawImage(this.scaledSprite(image, h),
+        cam.worldToScreenX(drawX + .5) - w / 2,
+        cam.worldToScreenY(drawY + .5) - h / 2, w, h);
+    } else {
+      ctx.fillStyle = '#8a5f31';
+      ctx.fillRect(cam.worldToScreenX(drawX) + z * .15,
+        cam.worldToScreenY(drawY) + z * .25, z * .7, z * .5);
+    }
   }
 
   // --- Terrain ---------------------------------------------------------

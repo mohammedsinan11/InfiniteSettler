@@ -50,6 +50,7 @@ export interface HudData {
   speed: 1 | 2 | 4;
   objective: HudObjective;
   selection: HudSelection | null;
+  expedition: { supplies: number } | null;
 }
 
 const GOOD_ICON: Partial<Record<Good, GoodSprite>> = {
@@ -180,15 +181,14 @@ export class Hud {
     this.welcome.setAttribute('aria-modal', 'true');
     this.welcome.setAttribute('aria-labelledby', 'settler-welcome-title');
     this.welcome.innerHTML = `
-      <span class="is-kicker">Willkommen am Kartentisch</span>
-      <h2 id="settler-welcome-title">Aus einer Karte wird eine Heimat.</h2>
-      <p>Errichte frei eine lebendige Siedlung und bringe Waren über Straßen und Wasser in Bewegung.</p>
-      <ol><li><kbd>Ziehen</kbd> Karte bewegen</li><li><kbd>2</kbd> Straße malen</li><li><kbd>C</kbd> Gebäude wählen</li></ol>
-      <button type="button" class="is-welcome-start">Planung beginnen <span aria-hidden="true">→</span></button>`;
+      <span class="is-kicker">Ein neuer Durchlauf</span>
+      <h2 id="settler-welcome-title">Hinter dem Nebel wartet eine Heimat.</h2>
+      <p>Du führst eine kleine Expedition über unbekannte Gewässer. Erkunde die Küste, wähle deinen Landungsort und gründe dort eine Siedlung.</p>
+      <ol><li><kbd>Ziehen</kbd> Karte bewegen</li><li><kbd>Klick</kbd> Kurs setzen</li><li><kbd>C</kbd> Später bauen</li></ol>
+      <button type="button" class="is-welcome-start">Expedition beginnen <span aria-hidden="true">→</span></button>`;
     this.welcome.querySelector('button')?.addEventListener('click', () => {
       this.dismissWelcome();
-      this.onMode(Mode.Storehouse);
-      this.openCatalogAtStart();
+      this.onMode(Mode.Pan);
     });
     this.welcomeBackdrop = el('div', 'is-welcome-backdrop');
 
@@ -228,17 +228,6 @@ export class Hud {
     const open = force ?? !panel.classList.contains('is-open');
     this.closePanels();
     panel.classList.toggle('is-open', open);
-  }
-
-  private openCatalogAtStart(): void {
-    this.catalogScroll.scrollTop = 0;
-    this.togglePanel(this.catalog, true);
-    // Der Fokus kennzeichnet den empfohlenen Einstieg, ohne das Buch wie
-    // scrollIntoView mitten auf einer bereits angeschnittenen Seite zu öffnen.
-    requestAnimationFrame(() => {
-      this.catalogScroll.scrollTop = 0;
-      this.catalog.querySelector<HTMLButtonElement>('.is-recommended')?.focus({ preventScroll: true });
-    });
   }
 
   private closePanels(): void {
@@ -304,7 +293,11 @@ export class Hud {
     this.updateSelection(data.selection);
     for (const [value, node] of this.speedButtons) node.classList.toggle('is-active', value === (data.paused ? 0 : data.speed));
     this.updateDiagnostics(data);
-    this.titleState.textContent = data.paused ? 'Pausiert' : `${data.population} Siedler · Tag ${Math.floor(data.tick / 1200) + 1}`;
+    this.titleState.textContent = data.paused
+      ? 'Pausiert'
+      : data.expedition
+        ? `Expedition · ${data.expedition.supplies} Vorräte`
+        : `${data.population} Siedler · Tag ${Math.floor(data.tick / 1200) + 1}`;
   }
 
   private refreshCatalog(): void {

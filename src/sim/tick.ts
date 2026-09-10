@@ -16,6 +16,7 @@ import {
   stepShips,
 } from './economy';
 import type { World } from './state';
+import { stepRun } from './run';
 
 export const TICK_HZ = 20;
 export const TICK_MS = 1000 / TICK_HZ;
@@ -23,6 +24,7 @@ export const TICK_MS = 1000 / TICK_HZ;
 /** Ein Simulationsschritt. Die einzige Stelle, die den Zustand vorwaerts bewegt. */
 export function step(world: World, commands: readonly Command[] = []): void {
   for (const cmd of commands) applyCommand(world, cmd);
+  stepRun(world);
   // Essen vor Produzieren: sonst arbeitet ein Haus, das in diesem Tick
   // seine letzte Mahlzeit verbraucht, noch eine Runde mit voller
   // Belegschaft weiter.

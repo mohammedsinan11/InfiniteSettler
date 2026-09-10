@@ -13,6 +13,7 @@
 
 import { canAfford, canUpgrade } from '../sim/commands';
 import { population, workersNeeded } from '../sim/economy';
+import { FP_ONE } from '../sim/fixed';
 import { parseKey } from '../sim/coords';
 import { hashWorldHex, serialize, deserialize } from '../sim/serialize';
 import {
@@ -27,7 +28,10 @@ import {
   type World,
 } from '../sim/state';
 import { isBuildable, TILE_NAMES, Tile } from '../sim/terrain';
-import { BUILDING_SPECS, BuildingType, GOOD_COUNT, GOOD_NAMES, type Building } from '../sim/types';
+import { beginExpedition, canBuildInRun, expeditionNearLand, isExplored } from '../sim/run';
+import {
+  BUILDING_SPECS, BuildingType, GOOD_COUNT, GOOD_NAMES, RunPhase, type Building,
+} from '../sim/types';
 import { TICK_MS, step } from '../sim/tick';
 import { Camera } from './camera';
 import { emptyGameAssets, loadGameAssets } from './assets';
@@ -39,7 +43,7 @@ import { Renderer, type BuildPreview } from './renderer';
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 const cam = new Camera();
 
-let world: World = createWorld(seedFromUrl());
+let world: World = createExpeditionWorld(seedFromUrl());
 let gameAssets = emptyGameAssets();
 let renderer = new Renderer(canvas, world, cam, gameAssets);
 
@@ -49,19 +53,36 @@ const hud = new Hud(
   () => void newWorld((Math.random() * 0x7fffffff) | 0),
   () => void resetSave(),
   () => {
-    if (!centerOnSettlement()) centerOnLand();
+    if (!centerOnSettlement() && !centerOnExpedition()) centerOnLand();
   },
   (speed) => setSimulationSpeed(speed),
 );
 input.onModeChange = (m) => hud.setMode(m);
 input.onInspect = (x, y) => {
   selectedTile = { x, y };
+  if (world.state.run.phase !== RunPhase.Voyage) return;
+  if (!isExplored(world, x, y)) {
+    hud.toast('Dieser Teil der Karte ist noch unentdeckt. Fahre bis an den Nebelrand.', 'warning');
+    return;
+  }
+  if (getTile(world, x, y) === Tile.Water) {
+    input.enqueue({ t: 'sail', x, y });
+    hud.toast('Kurs gesetzt. Die Expedition folgt dem Seeweg.', 'success');
+    return;
+  }
+  if (canBuildInRun(world, BuildingType.Storehouse, x, y)) {
+    input.setMode(Mode.Storehouse);
+    hud.toast('Küste erreicht. Setze hier das erste Lager.', 'success');
+  } else {
+    hud.toast('Die Küste ist zu weit entfernt. Fahre näher heran.', 'warning');
+  }
 };
 input.onAttempt = (mode, x, y) => explainAttempt(mode, x, y);
 // Dieselbe Verlegung wie in der Vorschau - siehe buildPreview().
 input.resolveBuild = (x, y) => {
   const type = BUILD_TYPE[input.mode];
   if (type === undefined) return { x, y };
+  if (world.state.run.phase === RunPhase.Voyage) return { x, y };
   return snapPlacement(world, type, x, y) ?? { x, y };
 };
 input.setMode(Mode.Pan);
@@ -84,6 +105,19 @@ function attachWorld(next: World): void {
   world = next;
   renderer = new Renderer(canvas, world, cam, gameAssets);
   location.hash = 'seed=' + world.state.seed;
+}
+
+function createExpeditionWorld(seed: number): World {
+  const next = createWorld(seed);
+  beginExpedition(next);
+  return next;
+}
+
+function centerOnExpedition(): boolean {
+  const expedition = world.state.run.expedition;
+  if (!expedition) return false;
+  cam.jumpTo(expedition.x / FP_ONE, expedition.y / FP_ONE);
+  return true;
 }
 
 /**
@@ -111,9 +145,9 @@ function centerOnLand(): void {
 }
 
 async function newWorld(seed: number): Promise<void> {
-  attachWorld(createWorld(seed));
+  attachWorld(createExpeditionWorld(seed));
   selectedTile = null;
-  centerOnLand();
+  centerOnExpedition();
   await clearSnapshot();
   saveState = 'neue Welt';
   hud.setWelcome(true);
@@ -172,16 +206,16 @@ async function boot(): Promise<void> {
     if (snap) {
       attachWorld(deserialize(snap));
       saveState = 'geladen (Tick ' + snap.tick + ')';
-      if (!centerOnSettlement()) centerOnLand();
+      if (!centerOnSettlement() && !centerOnExpedition()) centerOnLand();
     } else {
-      centerOnLand();
+      centerOnExpedition();
     }
   } catch (err) {
     // Haeufigster Fall: Spielstand aus einer aelteren Terrainversion.
     console.warn('Spielstand verworfen:', err);
     await clearSnapshot().catch(() => undefined);
     saveState = 'alter Spielstand verworfen';
-    centerOnLand();
+    centerOnExpedition();
   }
   gameAssets = await assetsPromise;
   renderer.setAssets(gameAssets);
@@ -189,7 +223,7 @@ async function boot(): Promise<void> {
   // damit genau das Gebaeude, das danach auf der Karte steht.
   hud.setAssets(gameAssets);
   hud.setMode(input.mode);
-  hud.setWelcome(world.state.buildings.size === 0);
+  hud.setWelcome(world.state.run.phase === RunPhase.Voyage);
   requestAnimationFrame(frame);
 }
 
@@ -235,7 +269,8 @@ function buildPreview(): BuildPreview | null {
     x: at.x,
     y: at.y,
     footprint: BUILDING_SPECS[type].footprint,
-    valid: canPlaceBuilding(world, type, at.x, at.y),
+    valid: canPlaceBuilding(world, type, at.x, at.y)
+      && canBuildInRun(world, type, at.x, at.y),
     snapped: snap !== null && (snap.x !== hover.x || snap.y !== hover.y),
     image: buildingSprite(type),
   };
@@ -344,7 +379,11 @@ function updateHud(): void {
     camX: cam.x,
     camY: cam.y,
     zoom: cam.zoom,
-    hover: h ? { x: h.x, y: h.y, tile: TILE_NAMES[getTile(world, h.x, h.y)] } : null,
+    hover: h ? {
+      x: h.x,
+      y: h.y,
+      tile: isExplored(world, h.x, h.y) ? TILE_NAMES[getTile(world, h.x, h.y)] : 'Unentdeckt',
+    } : null,
     chunksCached: renderer.cachedChunks,
     chunksGenerated: world.chunks.generatedCount,
     chunksPending: renderer.pendingChunks,
@@ -364,6 +403,9 @@ function updateHud(): void {
     speed: simSpeed,
     objective: currentObjective(),
     selection: currentSelection(),
+    expedition: world.state.run.phase === RunPhase.Voyage
+      ? { supplies: world.state.run.expedition?.supplies ?? 0 }
+      : null,
   });
 }
 
@@ -385,6 +427,23 @@ function hasBuilding(type: BuildingType): boolean {
 }
 
 function currentObjective(): HudObjective {
+  if (world.state.run.phase === RunPhase.Voyage) {
+    const supplies = world.state.run.expedition?.supplies ?? 0;
+    if (expeditionNearLand(world)) return {
+      eyebrow: `Expedition · ${supplies} Vorräte`,
+      title: 'Eine Heimat an dieser Küste gründen',
+      reason: 'Klicke auf das Land und setze das kostenlose Lager nahe am Schiff.',
+      progress: .12,
+      actionMode: Mode.Storehouse,
+    };
+    return {
+      eyebrow: `Expedition · ${supplies} Vorräte`,
+      title: 'Eine verheißungsvolle Küste finden',
+      reason: 'Klicke im Kartenmodus auf entdecktes Wasser, um einen Kurs zu setzen.',
+      progress: .04,
+      actionMode: Mode.Pan,
+    };
+  }
   const buildings = world.state.buildings.size;
   if (buildings === 0) return {
     eyebrow: 'Erster Eintrag · 0 von 7', title: 'Ein Lager als Ausgangspunkt',
@@ -436,6 +495,10 @@ function currentObjective(): HudObjective {
 
 function currentSelection(): HudSelection | null {
   if (!selectedTile) return null;
+  if (!isExplored(world, selectedTile.x, selectedTile.y)) return {
+    kind: 'tile', title: 'Unentdeckt', subtitle: 'Jenseits des Kartenrandes',
+    lines: [{ label: 'Hinweis', value: 'Erkunde die Gegend mit deiner Expedition.' }],
+  };
   const building = buildingAtTile(world, selectedTile.x, selectedTile.y);
   if (!building) {
     return {
@@ -486,8 +549,16 @@ function displayBuildingName(type: BuildingType): string {
 function explainAttempt(mode: Mode, x: number, y: number): void {
   const type = BUILD_TYPE[mode];
   if (type !== undefined) {
-    if (!canAfford(world, type)) hud.toast('Nicht genügend Waren im Lager.', 'warning');
+    if (!canBuildInRun(world, type, x, y)) {
+      hud.toast(type === BuildingType.Storehouse
+        ? 'Das Lager muss nahe am Expeditionsschiff stehen.'
+        : 'Zuerst muss die Expedition mit einem Lager anlanden.', 'warning');
+    } else if (!canAfford(world, type)) hud.toast('Nicht genügend Waren im Lager.', 'warning');
     else if (!canPlaceBuilding(world, type, x, y)) hud.toast('Dieser Standort ist für das Gebäude ungeeignet oder belegt.', 'warning');
+    return;
+  }
+  if (world.state.run.phase === RunPhase.Voyage && mode !== Mode.Pan) {
+    hud.toast('Zuerst muss die Expedition mit einem Lager anlanden.', 'warning');
     return;
   }
   if (mode === Mode.Road && (hasRoad(world, x, y) || buildingIdAt(world, x, y) !== undefined || !isBuildable(getTile(world, x, y)))) {

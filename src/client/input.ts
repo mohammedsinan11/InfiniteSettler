@@ -157,6 +157,11 @@ export class Input {
     return out;
   }
 
+  /** Commands aus UI-Interaktionen ausserhalb der Werkzeugleiste. */
+  enqueue(command: Command): void {
+    this.queue.push(command);
+  }
+
   hoverTile(): { x: number; y: number } | null {
     return this.hoverX === null || this.hoverY === null
       ? null
