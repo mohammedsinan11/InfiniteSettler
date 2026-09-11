@@ -207,6 +207,8 @@ interface Ghost {
   py: number;
 }
 
+type WorkerActivity = 'wood' | 'stone' | 'fish' | 'farm' | 'saw' | 'mill' | 'bake';
+
 type SceneObject =
   | { kind: 'cliff'; x: number; y: number; image: HTMLImageElement; dir: number }
   | { kind: 'ship'; x: number; y: number; ship: Ship }
@@ -215,7 +217,7 @@ type SceneObject =
   | { kind: 'resource'; x: number; y: number; image: HTMLImageElement }
   | { kind: 'site'; x: number; y: number; site: WorldSite }
   | { kind: 'wanderer'; x: number; y: number; wanderer: Wanderer }
-  | { kind: 'logger'; x: number; y: number; heading: CarrierDirection; working: boolean }
+  | { kind: 'worker'; x: number; y: number; heading: CarrierDirection; working: boolean; activity: WorkerActivity }
   | { kind: 'building'; x: number; y: number; building: Building }
   | { kind: 'carrier'; x: number; y: number; carrier: Carrier };
 
@@ -1125,32 +1127,40 @@ export class Renderer {
     for (const b of this.world.state.buildings.values()) {
       if (b.x < v.x0 - 2 || b.x > v.x1 + 2 || b.y < v.y0 - 3 || b.y > v.y1 + 1) continue;
       objects.push({ kind: 'building', x: b.x, y: b.y, building: b });
-      if (b.type === BuildingType.Woodcutter && b.progress >= 0) {
-        const target = harvestTarget(this.world, b);
-        if (target) {
-          const startX = b.x + BUILDING_SPECS[b.type].footprint * .5 - .5;
-          const startY = b.y + BUILDING_SPECS[b.type].footprint - 1;
-          // Nicht mitten in den Baum stellen: der Fuss des Sprites bleibt
-          // knapp vor dem Stamm, damit Arbeiter und Axt lesbar bleiben.
-          const dx = target[0] - startX;
-          const dy = target[1] - startY;
-          // Figuren werden nach ihrer Fusslinie sortiert. Ein Standort an
-          // der suedlichen Stammseite sorgt zugleich dafuer, dass die Krone
-          // den Arbeiter nicht vollstaendig verdeckt.
-          const workX = target[0] + (dx < 0 ? .22 : -.22);
-          const workY = target[1] + .48;
-          const fraction = Math.min(1, b.progress / BUILDING_SPECS[b.type].workTicks);
-          const travel = fraction < .22
-            ? fraction / .22
-            : fraction < .78 ? 1 : 1 - (fraction - .78) / .22;
-          const x = startX + (workX - startX) * travel;
-          const y = startY + (workY - startY) * travel;
-          const heading: CarrierDirection = Math.abs(dx) > Math.abs(dy)
-            ? (dx < 0 ? 'left' : 'right')
-            : (dy < 0 ? 'up' : 'down');
-          objects.push({ kind: 'logger', x, y, heading, working: fraction >= .22 && fraction < .78 });
-        }
+      const spec = BUILDING_SPECS[b.type];
+      const activity = workerActivity(b.type);
+      if (!spec.needsWorker || b.progress < 0 || activity === null) continue;
+
+      const startX = b.x + spec.footprint * .5 - .5;
+      const startY = b.y + spec.footprint - .35;
+      const target = spec.harvestTile >= 0 ? harvestTarget(this.world, b) : null;
+      let workX = b.x + spec.footprint * .5 + (b.id & 1 ? .52 : -.52);
+      let workY = b.y + spec.footprint + .38;
+      if (target && b.type === BuildingType.FisherHut) {
+        // Fischer bleiben am Ufer statt auf die Wasserkachel hinauszulaufen.
+        const tx = target[0] - startX;
+        const ty = target[1] - startY;
+        const length = Math.max(1, Math.hypot(tx, ty));
+        workX = startX + (tx / length) * 1.15;
+        workY = startY + (ty / length) * 1.15;
+      } else if (target) {
+        // Steinbruch und Wald: sichtbar an die Vorderseite der Ressource.
+        workX = target[0] + (target[0] < startX ? .22 : -.22);
+        workY = target[1] + .48;
       }
+
+      const fraction = Math.min(1, b.progress / spec.workTicks);
+      const travel = fraction < .22
+        ? fraction / .22
+        : fraction < .78 ? 1 : 1 - (fraction - .78) / .22;
+      const x = startX + (workX - startX) * travel;
+      const y = startY + (workY - startY) * travel;
+      const dx = workX - startX;
+      const dy = workY - startY;
+      const heading: CarrierDirection = Math.abs(dx) > Math.abs(dy)
+        ? (dx < 0 ? 'left' : 'right')
+        : (dy < 0 ? 'up' : 'down');
+      objects.push({ kind: 'worker', x, y, heading, activity, working: fraction >= .22 && fraction < .78 });
     }
 
     for (const sh of this.world.state.ships.values()) {
@@ -1196,7 +1206,7 @@ export class Renderer {
     objects.sort((a, b) =>
       (footY(a) - footY(b)) || (a.x - b.x) || sceneOrder(a.kind) - sceneOrder(b.kind));
 
-    const visibleLoggers: Extract<SceneObject, { kind: 'logger' }>[] = [];
+    const visibleWorkers: Extract<SceneObject, { kind: 'worker' }>[] = [];
     for (const object of objects) {
       switch (object.kind) {
         case 'cliff':
@@ -1217,11 +1227,11 @@ export class Renderer {
         case 'wanderer':
           this.drawWanderer(object.wanderer, object.x, object.y);
           break;
-        case 'logger':
+        case 'worker':
           // Dichte Baumkronen dürfen die kleine Arbeitseinheit nicht komplett
-          // verschlucken. Holzfäller kommen deshalb in einen eigenen,
+          // verschlucken. Produktionsarbeiter kommen deshalb in einen eigenen,
           // abschließenden Einheitenpass.
-          visibleLoggers.push(object);
+          visibleWorkers.push(object);
           break;
         case 'building':
           this.drawBuilding(object.building);
@@ -1234,8 +1244,8 @@ export class Renderer {
           break;
       }
     }
-    for (const logger of visibleLoggers) {
-      this.drawLogger(logger.x, logger.y, logger.heading, logger.working);
+    for (const worker of visibleWorkers) {
+      this.drawWorker(worker.x, worker.y, worker.heading, worker.working, worker.activity);
     }
   }
 
@@ -1700,12 +1710,13 @@ export class Renderer {
     }
   }
 
-  /** Sichtbarer Arbeitsweg des Holzfaellers, aus dem Produktionsfortschritt abgeleitet. */
-  private drawLogger(
+  /** Sichtbarer Arbeitsweg eines Produktionsarbeiters, aus seinem Zyklus abgeleitet. */
+  private drawWorker(
     x: number,
     y: number,
     heading: CarrierDirection,
     working: boolean,
+    activity: WorkerActivity,
   ): void {
     const { ctx, cam } = this;
     const z = cam.zoom;
@@ -1732,8 +1743,8 @@ export class Renderer {
     }
 
     if (!working || z < 10) return;
-    // Das Arbeitersprite hat keine eigene Hackanimation. Eine kleine,
-    // pixelharte Axt macht die Taetigkeit dennoch sofort lesbar.
+    // Die Figurensprites haben keine Tätigkeitsanimation. Kleine pixelharte
+    // Werkzeuge machen den jeweiligen Betrieb trotzdem sofort lesbar.
     const swing = ((this.world.state.tick >> 2) & 1) === 0;
     const sx = cam.worldToScreenX(x + .68);
     const sy = cam.worldToScreenY(y + .42);
@@ -1746,8 +1757,24 @@ export class Renderer {
     ctx.moveTo(0, 0);
     ctx.lineTo(0, z * .38);
     ctx.stroke();
-    ctx.fillStyle = '#a9aaa3';
-    ctx.fillRect(-z * .12, -z * .04, z * .24, z * .1);
+    if (activity === 'fish') {
+      ctx.strokeStyle = '#d3c38f';
+      ctx.beginPath();
+      ctx.moveTo(0, 0); ctx.quadraticCurveTo(z * .28, z * .2, z * .34, z * .5);
+      ctx.stroke();
+    } else if (activity === 'mill') {
+      ctx.fillStyle = '#c4a16a';
+      ctx.fillRect(-z * .14, z * .2, z * .28, z * .25);
+    } else if (activity === 'bake') {
+      ctx.fillStyle = '#d4b36f';
+      ctx.beginPath(); ctx.arc(0, 0, z * .13, 0, Math.PI * 2); ctx.fill();
+    } else if (activity === 'saw') {
+      ctx.fillStyle = '#c7c9c2';
+      ctx.fillRect(-z * .18, -z * .035, z * .36, z * .07);
+    } else {
+      ctx.fillStyle = activity === 'stone' ? '#b9bdc0' : '#a9aaa3';
+      ctx.fillRect(-z * .12, -z * .04, z * .24, z * .1);
+    }
     ctx.restore();
   }
 
@@ -1962,6 +1989,19 @@ function nearRoad(state: World['state'], x: number, y: number): boolean {
 const footY = (o: SceneObject): number =>
   o.kind === 'building' ? o.y + BUILDING_SPECS[o.building.type].footprint : o.y + 1;
 
+const workerActivity = (type: BuildingType): WorkerActivity | null => {
+  switch (type) {
+    case BuildingType.Woodcutter: return 'wood';
+    case BuildingType.Quarry: return 'stone';
+    case BuildingType.FisherHut: return 'fish';
+    case BuildingType.Farm: return 'farm';
+    case BuildingType.Sawmill: return 'saw';
+    case BuildingType.Mill: return 'mill';
+    case BuildingType.Bakery: return 'bake';
+    default: return null;
+  }
+};
+
 const sceneOrder = (kind: SceneObject['kind']): number => {
   switch (kind) {
     // Uferkanten zuerst: sie liegen im Gelaende, alles andere steht darauf.
@@ -1972,7 +2012,7 @@ const sceneOrder = (kind: SceneObject['kind']): number => {
     case 'resource': return 1;
     case 'site': return 2;
     case 'wanderer': return 3;
-    case 'logger': return 3;
+    case 'worker': return 3;
     case 'building': return 2;
     case 'carrier': return 3;
   }

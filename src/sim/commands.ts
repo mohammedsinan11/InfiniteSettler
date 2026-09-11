@@ -19,7 +19,7 @@ import {
 } from './state';
 import { isBuildable } from './terrain';
 import { getTile } from './state';
-import { canBuildInRun, completeLanding, isExplored, sailTo, scoutTo } from './run';
+import { canBuildInRun, completeLanding, isExplored, revealFromBuilding, sailTo, scoutTo } from './run';
 import { resolveEncounter } from './living-world';
 import {
   BUILDING_SPECS,
@@ -125,6 +125,7 @@ function doBuild(
   if (isFirst && bt === BuildingType.Storehouse && s.run.phase === RunPhase.Voyage) {
     completeLanding(world, x, y);
   }
+  revealFromBuilding(world, building);
   return true;
 }
 

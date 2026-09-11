@@ -18,6 +18,7 @@ import {
   CARRIER_SPEED,
   RunPhase,
   SHIP_SPEED,
+  type Building,
   type RunState,
   type Scout,
 } from './types';
@@ -26,6 +27,7 @@ export const EXPEDITION_SUPPLIES = 72;
 export const EXPEDITION_REVEAL_RADIUS = 9;
 export const LANDING_DISTANCE = 5;
 export const SCOUT_REVEAL_RADIUS = 7;
+export const BUILDING_REVEAL_RADIUS = 5;
 
 /**
  * Kleine, lesbare Freischaltfolge fuer neue Roguelike-Durchlaeufe.
@@ -117,6 +119,9 @@ export function stepRun(world: World): void {
   const run = world.state.run;
   const expedition = run.expedition;
   if (run.phase === RunPhase.Settled) {
+    // Seltenes Nachziehen migriert alte Spielstände und heilt Sichtlücken,
+    // ohne jeden Tick sämtliche Gebäudekreise neu einzutragen.
+    if (world.state.tick % 60 === 0) revealFromBuildings(world);
     stepScout(world);
     stepLivingWorld(world);
     return;
@@ -261,6 +266,25 @@ function revealAround(run: RunState, x: number, y: number, radius: number): void
       run.explored.add(tileKey(x + dx, y + dy));
     }
   }
+}
+
+/** Gebäude sichern ihr direktes Umfeld dauerhaft gegen den Entdeckungsnebel. */
+function revealFromBuildings(world: World): void {
+  const run = world.state.run;
+  if (!run.fogEnabled) return;
+  for (const building of world.state.buildings.values()) {
+    revealFromBuilding(world, building);
+  }
+}
+
+/** Deckt den Sichtkreis eines gerade gesetzten Gebäudes unmittelbar auf. */
+export function revealFromBuilding(world: World, building: Building): void {
+  if (!world.state.run.fogEnabled) return;
+  const spec = BUILDING_SPECS[building.type];
+  const x = building.x + Math.floor(spec.footprint / 2);
+  const y = building.y + Math.floor(spec.footprint / 2);
+  const radius = BUILDING_REVEAL_RADIUS + (spec.isSink || spec.isPort ? 1 : 0);
+  revealAround(world.state.run, x, y, radius);
 }
 
 function stepScout(world: World): void {

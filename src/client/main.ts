@@ -805,6 +805,17 @@ function buildingSelection(building: Building): HudSelection {
     { label: 'Aufgabe', value: flow },
     { label: 'Puffer', value: `${stored} Waren` },
   ];
+  if (spec.needsWorker) {
+    lines.splice(2, 0, {
+      label: 'Arbeiter',
+      value: !staffed
+        ? 'Kein freier Siedler'
+        : building.progress >= 0
+          ? `Im Einsatz · ${Math.round((building.progress / spec.workTicks) * 100)} %`
+          : 'Wartet auf Material oder Lagerplatz',
+    });
+  }
+  lines.push({ label: 'Sichtbereich', value: spec.isSink || spec.isPort ? '6 Felder' : '5 Felder' });
   if (spec.upgradesTo !== -1) {
     const cost: string[] = [];
     for (let good = 0; good < GOOD_COUNT; good++) if (spec.upgradeCost[good] > 0) cost.push(`${spec.upgradeCost[good]} ${GOOD_NAMES[good as keyof typeof GOOD_NAMES]}`);

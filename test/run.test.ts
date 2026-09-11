@@ -84,6 +84,20 @@ describe('Expeditionsdurchlauf', () => {
     expect(loaded.state.run.scout).toEqual(scout);
   });
 
+  it('laesst Gebaeude den Nebel dauerhaft aus ihrem Umfeld draengen', () => {
+    const world = settledWorld(31337);
+    const building = [...world.state.buildings.values()][0];
+    const centerX = building.x + 1;
+    const centerY = building.y + 1;
+    world.state.run.explored.clear();
+    world.state.run.scout = null;
+
+    stepRun(world);
+
+    expect(isExplored(world, centerX + 6, centerY)).toBe(true);
+    expect(isExplored(world, centerX + 7, centerY)).toBe(false);
+  });
+
   it('speichert Reise, Nebel und Vorrat ohne Informationsverlust', () => {
     const world = createWorld(8080);
     beginExpedition(world);
