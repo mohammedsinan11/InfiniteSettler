@@ -22,6 +22,7 @@ import {
   type Carrier,
   type Expedition,
   type RunState,
+  type RunBonuses,
   type Scout,
   type Ship,
   type Wanderer,
@@ -61,6 +62,7 @@ export interface SnapshotRun {
   landing: { x: number; y: number } | null;
   sites?: WorldSite[];
   wanderers?: Wanderer[];
+  bonuses?: RunBonuses;
 }
 
 const byId = (a: { id: number }, b: { id: number }): number => a.id - b.id;
@@ -91,6 +93,7 @@ export function serialize(world: World): Snapshot {
       landing: s.run.landing ? { ...s.run.landing } : null,
       sites: s.run.sites.map(cloneWorldSite).sort(byId),
       wanderers: s.run.wanderers.map(cloneWanderer).sort(byId),
+      bonuses: { ...s.run.bonuses },
     },
   };
 }
@@ -208,6 +211,7 @@ const cloneRun = (run: SnapshotRun | undefined): RunState => {
     landing: null,
     sites: [],
     wanderers: [],
+    bonuses: { scoutVision: 0, scoutSpeed: 0, woodYield: 0 },
   };
   return {
     phase: run.phase === RunPhase.Voyage ? RunPhase.Voyage : RunPhase.Settled,
@@ -218,6 +222,11 @@ const cloneRun = (run: SnapshotRun | undefined): RunState => {
     landing: run.landing ? { x: run.landing.x, y: run.landing.y } : null,
     sites: (run.sites ?? []).map(cloneWorldSite).sort(byId),
     wanderers: (run.wanderers ?? []).map(cloneWanderer).sort(byId),
+    bonuses: {
+      scoutVision: run.bonuses?.scoutVision ?? 0,
+      scoutSpeed: run.bonuses?.scoutSpeed ?? 0,
+      woodYield: run.bonuses?.woodYield ?? 0,
+    },
   };
 };
 
@@ -228,6 +237,8 @@ const cloneWorldSite = (site: WorldSite): WorldSite => ({
   y: site.y,
   discoveredTick: site.discoveredTick ?? -1,
   visitedTick: site.visitedTick ?? -1,
+  resolvedChoice: site.resolvedChoice ?? -1,
+  resolvedTick: site.resolvedTick ?? -1,
 });
 
 const cloneWanderer = (wanderer: Wanderer): Wanderer => ({

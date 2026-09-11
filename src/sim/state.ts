@@ -78,6 +78,7 @@ export function createWorld(seed: number): World {
         landing: null,
         sites: [],
         wanderers: [],
+        bonuses: { scoutVision: 0, scoutSpeed: 0, woodYield: 0 },
       },
     },
     chunks: new ChunkStore(seed | 0),

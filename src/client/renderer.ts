@@ -4,7 +4,7 @@
  * Kernidee: jeder Chunk wird genau einmal in ein eigenes Canvas gezeichnet
  * und danach pro Frame mit einem Draw-Call geblittet. Die Grundfarben liegen
  * weiter in einem 64x64-ImageData; die geladenen Texturen werden einmalig in
- * sechzehn Pixel pro Tile daruebergelegt. So bleiben Details sichtbar, ohne im
+ * in der Nahansicht nativen 32 Pixeln pro Tile daruebergelegt. So bleiben Details sichtbar, ohne im
  * laufenden Frame tausende Terrainbilder einzeln zu zeichnen.
  *
  * Der Renderer liest den Weltzustand ausschliesslich - er schreibt nie
@@ -15,6 +15,7 @@ import { HEIGHT_SHIFT, heightIndex } from '../sim/chunks';
 import { CHUNK_BITS, CHUNK_SIZE, NEIGHBORS, chunkKey, parseKey, tileKey } from '../sim/coords';
 import { hash2i } from '../sim/hash';
 import { FP_ONE } from '../sim/fixed';
+import { harvestTarget } from '../sim/economy';
 import { buildingIdAt, getTile, hasRoad, type World } from '../sim/state';
 import { generateTile, Tile, waterDepth } from '../sim/terrain';
 import {
@@ -62,13 +63,13 @@ const UNLOADED_COLOR = '#0d1319';
 /**
  * Detailaufloesung des statischen Terrain-Chunk-Canvas.
  *
- * 16 ist absichtlich ein ganzzahliger Teiler der nativen 32-px-Kacheln.
- * Bei 12 px musste der Browser ungleichmaessig herunterrechnen; zusammen
- * mit bilinearer Glaettung war genau das der verwaschene Eindruck des
- * Bodens. Die Chunkzahl ist bereits speicherbegrenzt, daher bleibt der
- * Mehrbedarf kontrolliert.
+ * Die 32 entsprechen exakt der Quellauflösung. Das fruehere 32 -> 16
+ * Downscale war trotz deaktivierter Glaettung verlustbehaftet und wurde beim
+ * anschliessenden Hochskalieren als verwaschener Boden sichtbar.
  */
-const TERRAIN_PX = 16;
+const TERRAIN_PX = 32;
+/** Leichte Übersichtsfassung: ein Chunk braucht hier nur rund 1 MiB. */
+const TERRAIN_PX_FAR = 8;
 /** Deckkraft der Detailebene fuer nahtlose bzw. gerahmte Kacheln. */
 const DETAIL_ALPHA_SEAMLESS = 1;
 const DETAIL_ALPHA_FRAMED = 0.42;
@@ -87,8 +88,9 @@ const VISUAL_TERRAIN_SIZE = CHUNK_SIZE + 2;
 const MACRO_SAMPLE = 2;
 /** Aufloesung der vorgebackenen Strassenkachel. */
 const ROAD_PX = 32;
-/** Bei 16 px je Kachel ist ein Chunkbild 1024x1024 - rund 4 MiB. */
-const MAX_RENDER_CHUNKS = 48;
+/** Cachegrenzen halten Nah- und Übersichtsdarstellung jeweils unter ~200 MiB. */
+const MAX_RENDER_CHUNKS_NEAR = 12;
+const MAX_RENDER_CHUNKS_FAR = 160;
 const SCENERY_MIN_ZOOM = 7;
 /**
  * Ab welchem Zoom Blumen und Buesche gezeichnet werden.
@@ -108,6 +110,7 @@ const SCATTER_MIN_ZOOM = 13;
  */
 const SPRITE_OVERHANG = 1.35;
 const TREE_SEED = 0x4f2a19c3 | 0;
+const TREE_BIOME_SEED = 0x6c842d11 | 0;
 const SCATTER_SEED = 0x2c8f5b71 | 0;
 const CLIFF_SEED = 0x7b3d19a5 | 0;
 
@@ -212,6 +215,7 @@ type SceneObject =
   | { kind: 'resource'; x: number; y: number; image: HTMLImageElement }
   | { kind: 'site'; x: number; y: number; site: WorldSite }
   | { kind: 'wanderer'; x: number; y: number; wanderer: Wanderer }
+  | { kind: 'logger'; x: number; y: number; heading: CarrierDirection; working: boolean }
   | { kind: 'building'; x: number; y: number; building: Building }
   | { kind: 'carrier'; x: number; y: number; carrier: Carrier };
 
@@ -249,6 +253,7 @@ export class Renderer {
   private scoutGhost: Ghost | null = null;
   private wandererGhosts = new Map<number, Ghost>();
   private textureSeed: number;
+  private terrainPixelSize = TERRAIN_PX;
 
   pendingChunks = 0;
 
@@ -328,7 +333,7 @@ export class Renderer {
     const g = baked.getContext('2d');
     if (!g) throw new Error('Detail-Canvas nicht verfuegbar');
     // Die Quellen haben ein logisches 32er-Raster. Naechster Nachbar
-    // erhaelt dessen Koernung beim exakten 32 -> 16 Downscale.
+    // behaelt dessen Koernung ohne einen verlustbehafteten Zwischenschritt.
     g.imageSmoothingEnabled = false;
     const inset = crop
       ? Math.max(1, Math.round(Math.min(image.naturalWidth, image.naturalHeight) * 0.08))
@@ -356,14 +361,14 @@ export class Renderer {
   private compatibleTerrainTile(
     baseImage: HTMLImageElement,
     detailImage: HTMLImageElement,
+    size: number,
   ): HTMLCanvasElement {
-    if (baseImage === detailImage) return this.detailTile(baseImage, TERRAIN_PX, false);
+    if (baseImage === detailImage) return this.detailTile(baseImage, size, false);
 
-    const key = baseImage.src + '>' + detailImage.src + '@' + TERRAIN_PX;
+    const key = baseImage.src + '>' + detailImage.src + '@' + size;
     const cached = this.detailTiles.get(key);
     if (cached) return cached;
 
-    const size = TERRAIN_PX;
     const baked = document.createElement('canvas');
     baked.width = size;
     baked.height = size;
@@ -417,12 +422,12 @@ export class Renderer {
     image: HTMLImageElement,
     dir: number,
     variant: number,
+    size: number,
   ): HTMLCanvasElement {
-    const key = image.src + '#' + dir + '.' + variant;
+    const key = image.src + '#' + dir + '.' + variant + '@' + size;
     const cached = this.edgeTiles.get(key);
     if (cached) return cached;
 
-    const size = TERRAIN_PX;
     const el = document.createElement('canvas');
     el.width = size;
     el.height = size;
@@ -451,7 +456,9 @@ export class Renderer {
 
   /** Nach jeder Terrainaenderung aufrufen, sonst zeigt der Cache Altes. */
   invalidateTile(x: number, y: number): void {
-    this.cache.delete(chunkKey(x >> CHUNK_BITS, y >> CHUNK_BITS));
+    const key = chunkKey(x >> CHUNK_BITS, y >> CHUNK_BITS);
+    this.cache.delete(key + '@' + TERRAIN_PX);
+    this.cache.delete(key + '@' + TERRAIN_PX_FAR);
   }
 
   invalidateAll(): void {
@@ -616,6 +623,11 @@ export class Renderer {
 
   private drawTerrain(): void {
     const { ctx, cam } = this;
+    const terrainPx = cam.zoom >= 10 ? TERRAIN_PX : TERRAIN_PX_FAR;
+    if (terrainPx !== this.terrainPixelSize) {
+      this.terrainPixelSize = terrainPx;
+      this.cache.clear();
+    }
     const v = cam.visibleTiles();
     const c0x = v.x0 >> CHUNK_BITS;
     const c1x = v.x1 >> CHUNK_BITS;
@@ -628,7 +640,7 @@ export class Renderer {
 
     for (let cy = c0y; cy <= c1y; cy++) {
       for (let cx = c0x; cx <= c1x; cx++) {
-        const key = chunkKey(cx, cy);
+        const key = chunkKey(cx, cy) + '@' + terrainPx;
         let img = this.cache.get(key);
         if (!img) {
           // Der erste Chunk wird immer gebaut, danach nur solange Zeit ist.
@@ -636,7 +648,7 @@ export class Renderer {
             pending++;
             continue;
           }
-          img = this.buildChunkCanvas(cx, cy);
+          img = this.buildChunkCanvas(cx, cy, terrainPx);
           this.cache.set(key, img);
           built++;
         }
@@ -653,13 +665,16 @@ export class Renderer {
     }
 
     this.pendingChunks = pending;
-    this.evictOffscreen(c0x - 2, c0y - 2, c1x + 2, c1y + 2);
+    this.evictOffscreen(
+      c0x - 2, c0y - 2, c1x + 2, c1y + 2,
+      terrainPx === TERRAIN_PX ? MAX_RENDER_CHUNKS_NEAR : MAX_RENDER_CHUNKS_FAR,
+    );
   }
 
-  private buildChunkCanvas(cx: number, cy: number): HTMLCanvasElement {
+  private buildChunkCanvas(cx: number, cy: number, terrainPx: number): HTMLCanvasElement {
     const el = document.createElement('canvas');
-    el.width = CHUNK_SIZE * TERRAIN_PX;
-    el.height = CHUNK_SIZE * TERRAIN_PX;
+    el.width = CHUNK_SIZE * terrainPx;
+    el.height = CHUNK_SIZE * terrainPx;
     const g = el.getContext('2d');
     if (!g) throw new Error('Chunk-Canvas nicht verfuegbar');
 
@@ -814,20 +829,20 @@ export class Renderer {
         let bakedVariants = bakedTerrain[sprite];
         if (!bakedVariants) {
           bakedVariants = variants.map((image) => seamless
-            ? this.compatibleTerrainTile(variants[0], image)
-            : this.detailTile(image, TERRAIN_PX, true));
+            ? this.compatibleTerrainTile(variants[0], image, terrainPx)
+            : this.detailTile(image, terrainPx, true));
           bakedTerrain[sprite] = bakedVariants;
         }
         const tile = bakedVariants[variant];
         const orient = seamless ? 0 : (hash >>> 12) & 7;
         if (orient === 0) {
-          g.drawImage(tile, lx * TERRAIN_PX, ly * TERRAIN_PX);
+          g.drawImage(tile, lx * terrainPx, ly * terrainPx);
         } else {
           g.save();
-          g.translate(lx * TERRAIN_PX + TERRAIN_PX / 2, ly * TERRAIN_PX + TERRAIN_PX / 2);
+          g.translate(lx * terrainPx + terrainPx / 2, ly * terrainPx + terrainPx / 2);
           g.rotate(((orient & 3) * Math.PI) / 2);
           if (orient & 4) g.scale(-1, 1);
-          g.drawImage(tile, -TERRAIN_PX / 2, -TERRAIN_PX / 2);
+          g.drawImage(tile, -terrainPx / 2, -terrainPx / 2);
           g.restore();
         }
 
@@ -849,9 +864,9 @@ export class Renderer {
           const otherSeamless = SEAMLESS.has(other);
           const edgeVariant = otherSeamless ? 0 : nh % set.length;
           g.drawImage(
-            this.edgeTile(set[edgeVariant], d, (hash >>> (d * 2)) & 3),
-            lx * TERRAIN_PX,
-            ly * TERRAIN_PX,
+            this.edgeTile(set[edgeVariant], d, (hash >>> (d * 2)) & 3, terrainPx),
+            lx * terrainPx,
+            ly * terrainPx,
           );
         }
       }
@@ -998,11 +1013,16 @@ export class Renderer {
   }
 
   /** Haelt den Cache klein: alles weit ausserhalb des Sichtfelds fliegt raus. */
-  private evictOffscreen(x0: number, y0: number, x1: number, y1: number): void {
-    if (this.cache.size <= MAX_RENDER_CHUNKS) return;
+  private evictOffscreen(x0: number, y0: number, x1: number, y1: number, maxChunks: number): void {
+    if (this.cache.size <= maxChunks) return;
     for (const key of this.cache.keys()) {
-      const [cx, cy] = parseKey(key);
+      const [cx, cy] = parseKey(key.slice(0, key.indexOf('@')));
       if (cx < x0 || cx > x1 || cy < y0 || cy > y1) this.cache.delete(key);
+    }
+    while (this.cache.size > maxChunks) {
+      const oldest = this.cache.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      this.cache.delete(oldest);
     }
   }
 
@@ -1105,6 +1125,32 @@ export class Renderer {
     for (const b of this.world.state.buildings.values()) {
       if (b.x < v.x0 - 2 || b.x > v.x1 + 2 || b.y < v.y0 - 3 || b.y > v.y1 + 1) continue;
       objects.push({ kind: 'building', x: b.x, y: b.y, building: b });
+      if (b.type === BuildingType.Woodcutter && b.progress >= 0) {
+        const target = harvestTarget(this.world, b);
+        if (target) {
+          const startX = b.x + BUILDING_SPECS[b.type].footprint * .5 - .5;
+          const startY = b.y + BUILDING_SPECS[b.type].footprint - 1;
+          // Nicht mitten in den Baum stellen: der Fuss des Sprites bleibt
+          // knapp vor dem Stamm, damit Arbeiter und Axt lesbar bleiben.
+          const dx = target[0] - startX;
+          const dy = target[1] - startY;
+          // Figuren werden nach ihrer Fusslinie sortiert. Ein Standort an
+          // der suedlichen Stammseite sorgt zugleich dafuer, dass die Krone
+          // den Arbeiter nicht vollstaendig verdeckt.
+          const workX = target[0] + (dx < 0 ? .22 : -.22);
+          const workY = target[1] + .48;
+          const fraction = Math.min(1, b.progress / BUILDING_SPECS[b.type].workTicks);
+          const travel = fraction < .22
+            ? fraction / .22
+            : fraction < .78 ? 1 : 1 - (fraction - .78) / .22;
+          const x = startX + (workX - startX) * travel;
+          const y = startY + (workY - startY) * travel;
+          const heading: CarrierDirection = Math.abs(dx) > Math.abs(dy)
+            ? (dx < 0 ? 'left' : 'right')
+            : (dy < 0 ? 'up' : 'down');
+          objects.push({ kind: 'logger', x, y, heading, working: fraction >= .22 && fraction < .78 });
+        }
+      }
     }
 
     for (const sh of this.world.state.ships.values()) {
@@ -1150,6 +1196,7 @@ export class Renderer {
     objects.sort((a, b) =>
       (footY(a) - footY(b)) || (a.x - b.x) || sceneOrder(a.kind) - sceneOrder(b.kind));
 
+    const visibleLoggers: Extract<SceneObject, { kind: 'logger' }>[] = [];
     for (const object of objects) {
       switch (object.kind) {
         case 'cliff':
@@ -1170,6 +1217,12 @@ export class Renderer {
         case 'wanderer':
           this.drawWanderer(object.wanderer, object.x, object.y);
           break;
+        case 'logger':
+          // Dichte Baumkronen dürfen die kleine Arbeitseinheit nicht komplett
+          // verschlucken. Holzfäller kommen deshalb in einen eigenen,
+          // abschließenden Einheitenpass.
+          visibleLoggers.push(object);
+          break;
         case 'building':
           this.drawBuilding(object.building);
           break;
@@ -1180,6 +1233,9 @@ export class Renderer {
           this.drawCarrier(object.carrier, object.x, object.y);
           break;
       }
+    }
+    for (const logger of visibleLoggers) {
+      this.drawLogger(logger.x, logger.y, logger.heading, logger.working);
     }
   }
 
@@ -1282,7 +1338,6 @@ export class Renderer {
               image = group[(hash >>> 8) % group.length];
               kind = 'scatter';
             } else if (tile === Tile.Forest) {
-              if (trees.length === 0) continue;
               const hash = hash2i(seed ^ TREE_SEED, x, y) >>> 0;
               if (treeStep > 1 && hash % treeStep !== 0) continue;
               // Grobe 4x4-Cluster bestimmen die lokale Dichte, der Tile-Hash
@@ -1290,7 +1345,7 @@ export class Renderer {
               // Baumgruppen, statt dass jede Waldkachel dieselbe visuelle
               // Bedeutung bekommt. Beides bleibt rein seed-abhaengig.
               const cluster = hash2i(seed ^ (TREE_SEED + 0x45d9), x >> 2, y >> 2) >>> 0;
-              const threshold = 12 + ((cluster & 255) >>> 3);
+              const threshold = 68 + ((cluster & 255) >>> 2);
               if ((hash & 255) > threshold) continue;
               // Neben einer Strasse keine Baeume. Ihre Kronen ragen zwei
               // Kacheln nach oben und deckten den Weg sonst komplett zu -
@@ -1300,7 +1355,16 @@ export class Renderer {
               // geschlossene Flaeche lesen, nicht als Streuobstwiese.
               // Der Versatz innerhalb der Kachel nimmt dem Ganzen das
               // Rastermuster, das bei voller Dichte sonst auffiele.
-              image = trees[(hash >>> 8) % trees.length];
+              // Grosse, zusammenhaengende Waldregionen sind entweder Laub-
+              // oder Nadelwald. Einzelne Baeume der Nachbargruppe mischen
+              // die Grenze, waehrend der Schneebaum bis zu einem echten
+              // Schneebiom bewusst nie verwendet wird.
+              const biome = hash2i(seed ^ TREE_BIOME_SEED, x >> 4, y >> 4) >>> 0;
+              const primary = (biome & 255) < 96 ? trees.conifer : trees.temperate;
+              const secondary = primary === trees.conifer ? trees.temperate : trees.conifer;
+              const variants = ((hash >>> 20) & 7) === 0 && secondary.length > 0 ? secondary : primary;
+              if (variants.length === 0) continue;
+              image = variants[(hash >>> 8) % variants.length];
               kind = 'tree';
             } else if (tile === Tile.Stone || tile === Tile.Mountain) {
               const hash = hash2i(seed ^ RESOURCE_SEED, x, y) >>> 0;
@@ -1636,6 +1700,57 @@ export class Renderer {
     }
   }
 
+  /** Sichtbarer Arbeitsweg des Holzfaellers, aus dem Produktionsfortschritt abgeleitet. */
+  private drawLogger(
+    x: number,
+    y: number,
+    heading: CarrierDirection,
+    working: boolean,
+  ): void {
+    const { ctx, cam } = this;
+    const z = cam.zoom;
+    const image = this.assets.carrier[heading];
+    const bob = working && ((this.world.state.tick >> 2) & 1) ? z * .035 : 0;
+    // Kleine RTS-Lesbarkeitshilfe: selbst in dichtem Unterholz bleibt klar,
+    // dass hier eine eigene Arbeitseinheit steht.
+    if (z >= 8) {
+      ctx.strokeStyle = working ? 'rgba(232,183,67,.92)' : 'rgba(113,188,137,.82)';
+      ctx.lineWidth = Math.max(1, z * .055);
+      ctx.beginPath();
+      ctx.ellipse(
+        cam.worldToScreenX(x + .5), cam.worldToScreenY(y + .88),
+        z * .28, z * .12, 0, 0, Math.PI * 2,
+      );
+      ctx.stroke();
+    }
+    if (image && z >= 5) this.drawBottomCentered(image, x + .5, y + .9 + bob / z, z * .72);
+    else {
+      ctx.fillStyle = '#c78943';
+      ctx.beginPath();
+      ctx.arc(cam.worldToScreenX(x + .5), cam.worldToScreenY(y + .62), Math.max(2, z * .17), 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    if (!working || z < 10) return;
+    // Das Arbeitersprite hat keine eigene Hackanimation. Eine kleine,
+    // pixelharte Axt macht die Taetigkeit dennoch sofort lesbar.
+    const swing = ((this.world.state.tick >> 2) & 1) === 0;
+    const sx = cam.worldToScreenX(x + .68);
+    const sy = cam.worldToScreenY(y + .42);
+    ctx.save();
+    ctx.translate(sx, sy);
+    ctx.rotate(swing ? -.55 : .28);
+    ctx.strokeStyle = '#5b3a20';
+    ctx.lineWidth = Math.max(1, z * .055);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(0, z * .38);
+    ctx.stroke();
+    ctx.fillStyle = '#a9aaa3';
+    ctx.fillRect(-z * .12, -z * .04, z * .24, z * .1);
+    ctx.restore();
+  }
+
   /** Kleine, klar lesbare Landmarken bis eigene Fraktionssprites vorliegen. */
   private drawWorldSite(site: WorldSite): void {
     const { ctx, cam } = this;
@@ -1857,6 +1972,7 @@ const sceneOrder = (kind: SceneObject['kind']): number => {
     case 'resource': return 1;
     case 'site': return 2;
     case 'wanderer': return 3;
+    case 'logger': return 3;
     case 'building': return 2;
     case 'carrier': return 3;
   }

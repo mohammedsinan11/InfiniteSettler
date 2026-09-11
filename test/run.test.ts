@@ -15,7 +15,7 @@ import { deserialize, serialize } from '../src/sim/serialize';
 import { step } from '../src/sim/tick';
 import { canPlaceBuilding, createWorld, getTile } from '../src/sim/state';
 import { Tile } from '../src/sim/terrain';
-import { BuildingType, Good, RunPhase } from '../src/sim/types';
+import { BuildingType, Good, RunPhase, WorldSiteKind } from '../src/sim/types';
 
 describe('Expeditionsdurchlauf', () => {
   it('startet reproduzierbar auf Wasser und deckt nur die Umgebung auf', () => {
@@ -185,6 +185,46 @@ describe('Expeditionsdurchlauf', () => {
     stepRun(loaded);
     expect(loaded.state.run.sites.length).toBeGreaterThan(0);
     expect(loaded.state.run.wanderers.length).toBeGreaterThan(0);
+  });
+
+  it('loest eine erreichte Begegnung genau einmal mit drei Belohnungswegen', () => {
+    const supplies = settledWorld(31337);
+    const ruin = supplies.state.run.sites.find((site) => site.kind === WorldSiteKind.Ruin)!;
+    ruin.discoveredTick = 1;
+    ruin.visitedTick = 2;
+    const storage = [...supplies.state.buildings.values()][0];
+    const planks = storage.input[Good.Plank];
+    expect(applyCommand(supplies, { t: 'encounter', siteId: ruin.id, choice: 0 })).toBe(true);
+    expect(storage.input[Good.Plank]).toBe(planks + 4);
+    expect(ruin.resolvedChoice).toBe(0);
+    expect(applyCommand(supplies, { t: 'encounter', siteId: ruin.id, choice: 2 })).toBe(false);
+
+    const knowledge = settledWorld(31337);
+    const source = knowledge.state.run.sites[0];
+    source.discoveredTick = 1;
+    source.visitedTick = 2;
+    const knownBefore = knowledge.state.run.sites.filter((site) => site.discoveredTick >= 0).length;
+    expect(applyCommand(knowledge, { t: 'encounter', siteId: source.id, choice: 1 })).toBe(true);
+    expect(knowledge.state.run.sites.filter((site) => site.discoveredTick >= 0).length).toBeGreaterThan(knownBefore);
+
+    const legacy = settledWorld(31337);
+    const grove = legacy.state.run.sites.find((site) => site.kind === WorldSiteKind.GroveCircle)!;
+    grove.discoveredTick = 1;
+    grove.visitedTick = 2;
+    expect(applyCommand(legacy, { t: 'encounter', siteId: grove.id, choice: 2 })).toBe(true);
+    expect(legacy.state.run.bonuses.woodYield).toBe(1);
+  });
+
+  it('ergaenzt alte Weltorte und Runs um Begegnungsfelder und Boni', () => {
+    const snapshot = serialize(settledWorld(31337));
+    delete snapshot.run!.bonuses;
+    for (const site of snapshot.run!.sites!) {
+      delete (site as Partial<typeof site>).resolvedChoice;
+      delete (site as Partial<typeof site>).resolvedTick;
+    }
+    const loaded = deserialize(snapshot);
+    expect(loaded.state.run.bonuses).toEqual({ scoutVision: 0, scoutSpeed: 0, woodYield: 0 });
+    expect(loaded.state.run.sites.every((site) => site.resolvedChoice === -1 && site.resolvedTick === -1)).toBe(true);
   });
 
   it('laesst bestehende Sandbox-Spielstaende mit vollem Baukasten kompatibel', () => {

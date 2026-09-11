@@ -626,6 +626,9 @@ export interface WorldSite {
   discoveredTick: number;
   /** Bereits vorbereitet fuer die spaeteren Begegnungsentscheidungen. */
   visitedTick: number;
+  /** Gewaehlter Belohnungsweg (0..2), -1 solange die Begegnung offen ist. */
+  resolvedChoice: number;
+  resolvedTick: number;
 }
 
 /** Neutrale Bewohner bewegen sich unabhaengig von Wirtschaftseinheiten. */
@@ -649,6 +652,15 @@ export interface Wanderer {
   nextDecisionTick: number;
 }
 
+export interface RunBonuses {
+  /** Zusaetzliche Kacheln Sichtweite des Spaehers. */
+  scoutVision: number;
+  /** Geschwindigkeitsstufen des Spaehers; jede Stufe entspricht 12,5 %. */
+  scoutSpeed: number;
+  /** Zusaetzliches Holz je abgeschlossener Holzfaeller-Arbeit. */
+  woodYield: number;
+}
+
 export interface RunState {
   phase: RunPhase;
   expedition: Expedition | null;
@@ -660,4 +672,5 @@ export interface RunState {
   /** Seed-abhaengige Landmarken und neutrale Wesen des aktuellen Runs. */
   sites: WorldSite[];
   wanderers: Wanderer[];
+  bonuses: RunBonuses;
 }

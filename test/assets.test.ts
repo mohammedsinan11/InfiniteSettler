@@ -14,7 +14,7 @@ const groups: Array<[string, string[]]> = [
   ['scatter', Object.values(manifest.scatter).flat()],
   ['shore', Object.values(manifest.shore).flat()],
   ['buildings', Object.values(manifest.buildings).flat()],
-  ['trees', [...manifest.trees]],
+  ['trees', Object.values(manifest.trees).flat()],
   ['resources', Object.values(manifest.resources).flat()],
   ['carrier', Object.values(manifest.carrier)],
   ['ship', Object.values(manifest.ship)],

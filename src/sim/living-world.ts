@@ -13,6 +13,8 @@ import { findPath } from './pathfind';
 import { getTile, type World } from './state';
 import { Tile } from './terrain';
 import {
+  BUILDING_SPECS,
+  Good,
   RunPhase,
   WandererKind,
   WorldSiteKind,
@@ -62,6 +64,72 @@ export function wandererAt(world: World, x: number, y: number): Wanderer | undef
   return nearest;
 }
 
+/** Loest genau einen der drei Belohnungswege eines erreichten Weltorts aus. */
+export function resolveEncounter(world: World, siteId: number, choice: number): boolean {
+  if (choice < 0 || choice > 2 || choice !== (choice | 0)) return false;
+  const site = world.state.run.sites.find((candidate) => candidate.id === siteId);
+  if (!site || site.visitedTick < 0 || site.resolvedChoice >= 0) return false;
+
+  if (choice === 0) grantSupplies(world, site.kind);
+  else if (choice === 1) grantKnowledge(world, site);
+  else grantLegacy(world, site.kind);
+
+  site.resolvedChoice = choice;
+  site.resolvedTick = Math.max(1, world.state.tick);
+  discoverLivingWorld(world);
+  return true;
+}
+
+function grantSupplies(world: World, kind: WorldSite['kind']): void {
+  const storage = [...world.state.buildings.values()]
+    .filter((building) => BUILDING_SPECS[building.type].isSink)
+    .sort((a, b) => a.id - b.id)[0];
+  if (!storage) return;
+  if (kind === WorldSiteKind.Ruin) {
+    storage.input[Good.Plank] += 4;
+    storage.input[Good.Stone] += 3;
+  } else if (kind === WorldSiteKind.Tidewatch) {
+    storage.input[Good.Fish] += 6;
+    storage.input[Good.Plank] += 2;
+  } else {
+    storage.input[Good.Wood] += 8;
+  }
+}
+
+function grantKnowledge(world: World, source: WorldSite): void {
+  let target: WorldSite | null = null;
+  let bestDistance = Infinity;
+  for (const site of world.state.run.sites) {
+    if (site.id === source.id || site.discoveredTick >= 0) continue;
+    const dx = site.x - source.x;
+    const dy = site.y - source.y;
+    const distance = dx * dx + dy * dy;
+    if (distance >= bestDistance) continue;
+    target = site;
+    bestDistance = distance;
+  }
+  if (!target) {
+    world.state.run.bonuses.scoutVision++;
+    return;
+  }
+  revealCircle(world, target.x, target.y, 6);
+}
+
+function grantLegacy(world: World, kind: WorldSite['kind']): void {
+  if (kind === WorldSiteKind.Ruin) world.state.run.bonuses.scoutVision += 2;
+  else if (kind === WorldSiteKind.Tidewatch) world.state.run.bonuses.scoutSpeed++;
+  else world.state.run.bonuses.woodYield++;
+}
+
+function revealCircle(world: World, x: number, y: number, radius: number): void {
+  for (let dy = -radius; dy <= radius; dy++) {
+    for (let dx = -radius; dx <= radius; dx++) {
+      if (dx * dx + dy * dy > radius * radius) continue;
+      world.state.run.explored.add(tileKey(x + dx, y + dy));
+    }
+  }
+}
+
 function seedSites(world: World): void {
   const run = world.state.run;
   const landing = run.landing as { x: number; y: number };
@@ -95,6 +163,8 @@ function seedSites(world: World): void {
       y: position.y,
       discoveredTick: -1,
       visitedTick: -1,
+      resolvedChoice: -1,
+      resolvedTick: -1,
     });
   }
 }

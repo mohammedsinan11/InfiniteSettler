@@ -26,6 +26,14 @@ export interface HudObjective {
   actionMode?: Mode;
 }
 
+export interface HudEncounter {
+  siteId: number;
+  eyebrow: string;
+  title: string;
+  intro: string;
+  choices: readonly { title: string; reward: string; detail: string }[];
+}
+
 export interface HudData {
   tick: number;
   hash: string;
@@ -55,6 +63,7 @@ export interface HudData {
   selection: HudSelection | null;
   expedition: { supplies: number } | null;
   musicEnabled: boolean;
+  encounter: HudEncounter | null;
 }
 
 const GOOD_ICON: Partial<Record<Good, GoodSprite>> = {
@@ -90,6 +99,8 @@ export class Hud {
   private inspector: HTMLElement;
   private welcome: HTMLElement;
   private welcomeBackdrop: HTMLElement;
+  private encounter: HTMLElement;
+  private encounterBackdrop: HTMLElement;
   private toastEl: HTMLElement;
   private titleState: HTMLElement;
   private readonly buildBtn: HTMLButtonElement;
@@ -106,6 +117,7 @@ export class Hud {
   private lastAvailableKey = '';
   private lastObjectiveKey = '';
   private lastSelectionKey = '';
+  private lastEncounterKey = '';
   private toastTimer = 0;
 
   constructor(
@@ -116,6 +128,7 @@ export class Hud {
     onSpeed: (speed: 0 | 1 | 2 | 4) => void,
     private onSelectionAction: () => void,
     private onMusicToggle: () => void,
+    private onEncounterChoice: (siteId: number, choice: number) => void,
   ) {
     const header = el('header', 'is-header');
     const left = el('div', 'is-header-left');
@@ -209,10 +222,17 @@ export class Hud {
     });
     this.welcomeBackdrop = el('div', 'is-welcome-backdrop');
 
+    this.encounter = el('section', 'is-encounter');
+    this.encounter.hidden = true;
+    this.encounter.setAttribute('role', 'dialog');
+    this.encounter.setAttribute('aria-modal', 'true');
+    this.encounterBackdrop = el('div', 'is-encounter-backdrop');
+    this.encounterBackdrop.hidden = true;
+
     this.toastEl = el('div', 'is-toast');
     this.toastEl.setAttribute('role', 'status');
     this.toastEl.setAttribute('aria-live', 'polite');
-    document.body.append(header, this.objective, this.inspector, this.catalog, this.system, this.diagnostics, this.welcomeBackdrop, this.welcome, this.toastEl, dock, this.compassBtn);
+    document.body.append(header, this.objective, this.inspector, this.catalog, this.system, this.diagnostics, this.welcomeBackdrop, this.welcome, this.encounterBackdrop, this.encounter, this.toastEl, dock, this.compassBtn);
     this.modalPeers = [header, this.objective, this.inspector, this.catalog, this.system, this.diagnostics, this.toastEl, dock, this.compassBtn];
 
     document.addEventListener('pointerdown', (event) => {
@@ -306,6 +326,7 @@ export class Hud {
     this.updateAffordable(data.affordable, data.availableGoods);
     this.updateObjective(data.objective);
     this.updateSelection(data.selection);
+    this.updateEncounter(data.encounter);
     this.musicBtn.textContent = `Musik: ${data.musicEnabled ? 'an' : 'aus'}`;
     for (const [value, node] of this.speedButtons) node.classList.toggle('is-active', value === (data.paused ? 0 : data.speed));
     this.updateDiagnostics(data);
@@ -444,6 +465,24 @@ export class Hud {
     this.inspector.classList.toggle('is-unit-selection', selection.kind === 'unit');
     this.inspector.innerHTML = `<span class="is-kicker">Auswahl</span><div class="is-selection-head">${portrait ? `<span class="is-selection-portrait"><img src="${portrait.src}" alt=""></span>` : selection.emblem ? `<span class="is-selection-emblem" aria-hidden="true">${selection.emblem}</span>` : ''}<div><h2>${selection.title}</h2><p>${selection.subtitle}</p></div></div><dl>${selection.lines.map((line) => `<div><dt>${line.label}</dt><dd>${line.value}</dd></div>`).join('')}</dl>${selection.action ? `<button type="button" class="is-selection-action" ${selection.action.enabled ? '' : 'disabled'}>${selection.action.label}</button>` : ''}`;
     this.inspector.querySelector<HTMLButtonElement>('.is-selection-action')?.addEventListener('click', this.onSelectionAction);
+  }
+
+  private updateEncounter(encounter: HudEncounter | null): void {
+    const key = JSON.stringify(encounter);
+    if (key === this.lastEncounterKey) return;
+    this.lastEncounterKey = key;
+    this.encounter.hidden = encounter === null;
+    this.encounterBackdrop.hidden = encounter === null;
+    document.body.classList.toggle('is-encounter-open', encounter !== null);
+    if (!encounter) return;
+
+    this.closePanels();
+    this.encounter.setAttribute('aria-labelledby', `encounter-${encounter.siteId}`);
+    this.encounter.innerHTML = `<span class="is-kicker">${encounter.eyebrow}</span><h2 id="encounter-${encounter.siteId}">${encounter.title}</h2><p>${encounter.intro}</p><div class="is-encounter-choices">${encounter.choices.map((choice, index) => `<button type="button" data-choice="${index}"><em>${index + 1}</em><span><strong>${choice.title}</strong><b>${choice.reward}</b><small>${choice.detail}</small></span></button>`).join('')}</div>`;
+    for (const button of this.encounter.querySelectorAll<HTMLButtonElement>('[data-choice]')) {
+      button.addEventListener('click', () => this.onEncounterChoice(encounter.siteId, Number(button.dataset.choice)));
+    }
+    requestAnimationFrame(() => this.encounter.querySelector<HTMLButtonElement>('button')?.focus());
   }
 
   private updateDiagnostics(data: HudData): void {

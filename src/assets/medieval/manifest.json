@@ -122,16 +122,22 @@
       "buildings/bakery/bakery_04.png"
     ]
   },
-  "trees": [
-    "trees/oak_01.png",
-    "trees/oak_02.png",
-    "trees/oak_03.png",
-    "trees/oak_04.png",
-    "trees/pine_full_01.png",
-    "trees/pine_full_02.png",
-    "trees/pine_full_03.png",
-    "trees/pine_full_04.png"
-  ],
+  "trees": {
+    "temperate": [
+      "trees/oak_01.png",
+      "trees/oak_02.png",
+      "trees/oak_03.png",
+      "trees/oak_04.png"
+    ],
+    "conifer": [
+      "trees/pine_full_01.png",
+      "trees/pine_full_02.png",
+      "trees/pine_full_03.png"
+    ],
+    "snow": [
+      "trees/pine_full_04.png"
+    ]
+  },
   "shore": {
     "cliff": []
   },

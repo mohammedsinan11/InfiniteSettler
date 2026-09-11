@@ -131,7 +131,10 @@ export class Camera {
    */
   zoomBy(sx: number, sy: number, notches: number): void {
     const next = this.targetZoom * Math.pow(ZOOM_STEP, notches);
-    this.targetZoom = Math.min(this.maxZoom, Math.max(this.minZoom, next));
+    // Ganze Pixel pro Tile ergeben im Ruhezustand ein stabiles Pixelraster.
+    // Nicht-ganzzahlige Zielwerte lassen Pixelspalten unterschiedlich breit
+    // werden und wirken trotz deaktivierter Glaettung optisch weich.
+    this.targetZoom = Math.round(Math.min(this.maxZoom, Math.max(this.minZoom, next)));
     this.anchorWorldX = this.screenToWorldX(sx);
     this.anchorWorldY = this.screenToWorldY(sy);
     this.anchorScreenX = sx;

@@ -20,6 +20,7 @@ import {
 import { isBuildable } from './terrain';
 import { getTile } from './state';
 import { canBuildInRun, completeLanding, isExplored, sailTo, scoutTo } from './run';
+import { resolveEncounter } from './living-world';
 import {
   BUILDING_SPECS,
   BuildingType,
@@ -37,7 +38,8 @@ export type Command =
   | { t: 'demolish'; x: number; y: number }
   | { t: 'upgrade'; x: number; y: number }
   | { t: 'sail'; x: number; y: number }
-  | { t: 'scout'; x: number; y: number };
+  | { t: 'scout'; x: number; y: number }
+  | { t: 'encounter'; siteId: number; choice: number };
 
 /**
  * Startausstattung des allerersten Gebaeudes.
@@ -73,6 +75,8 @@ export function applyCommand(world: World, cmd: Command): boolean {
       return sailTo(world, cmd.x, cmd.y);
     case 'scout':
       return scoutTo(world, cmd.x, cmd.y);
+    case 'encounter':
+      return resolveEncounter(world, cmd.siteId, cmd.choice);
   }
 }
 

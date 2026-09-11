@@ -43,7 +43,7 @@ import {
 import { TICK_MS, step } from '../sim/tick';
 import { Camera } from './camera';
 import { emptyGameAssets, loadGameAssets } from './assets';
-import { Hud, type HudObjective, type HudSelection } from './hud';
+import { Hud, type HudEncounter, type HudObjective, type HudSelection } from './hud';
 import { BUILD_TYPE, Input, MODES, Mode } from './input';
 import { ExpeditionMusic } from './music';
 import { clearSnapshot, loadSnapshot, saveSnapshot } from './persist';
@@ -71,6 +71,10 @@ const hud = new Hud(
   () => {
     const enabled = music.toggle();
     hud.toast(enabled ? 'Expeditionsmusik eingeschaltet.' : 'Musik ausgeschaltet.');
+  },
+  (siteId, choice) => {
+    input.enqueue({ t: 'encounter', siteId, choice });
+    hud.toast('Deine Entscheidung prägt diesen Durchlauf.', 'success');
   },
 );
 input.canUseMode = (mode) => isModeAvailable(mode);
@@ -522,6 +526,7 @@ function updateHud(): void {
       ? { supplies: world.state.run.expedition?.supplies ?? 0 }
       : null,
     musicEnabled: music.enabled,
+    encounter: currentEncounter(),
   });
 }
 
@@ -560,6 +565,8 @@ function currentObjective(): HudObjective {
       actionMode: Mode.Pan,
     };
   }
+  const encounterResult = currentEncounterResult();
+  if (encounterResult) return encounterResult;
   const worldNotice = currentWorldNotice();
   if (worldNotice) return worldNotice;
   if (world.state.run.fogEnabled && (world.state.run.scout?.exploredSteps ?? 0) < 4) {
@@ -639,6 +646,59 @@ const SITE_META: Record<WorldSite['kind'], {
     discovery: 'Steine und grünes Licht markieren einen bewohnten Hain. Die Mooshüter dulden Besucher, aber keine Holzfäller.',
   },
 };
+
+function currentEncounter(): HudEncounter | null {
+  const site = world.state.run.sites
+    .filter((candidate) => candidate.visitedTick >= 0 && candidate.resolvedChoice < 0)
+    .sort((a, b) => a.visitedTick - b.visitedTick || a.id - b.id)[0];
+  if (!site) return null;
+  const meta = SITE_META[site.kind];
+  const choices = site.kind === WorldSiteKind.Ruin ? [
+    { title: 'Die Gewölbe bergen', reward: '+4 Bretter · +3 Stein', detail: 'Sichere sofort alles Brauchbare für deine junge Siedlung.' },
+    { title: 'Die Runen entziffern', reward: 'Ein weiterer Weltort wird enthüllt', detail: 'Wissen öffnet einen neuen Weg durch den Nebel.' },
+    { title: 'Das Relikt binden', reward: '+2 Sichtweite für diesen Run', detail: 'Verzichte auf Beute und stärke dauerhaft deinen Späher.' },
+  ] : site.kind === WorldSiteKind.Tidewatch ? [
+    { title: 'Mit der Wacht handeln', reward: '+6 Fisch · +2 Bretter', detail: 'Die Vorräte helfen sofort, tragen aber nicht über den ganzen Run.' },
+    { title: 'Ihre Seekarten studieren', reward: 'Ein weiterer Weltort wird enthüllt', detail: 'Die Küstenleute kennen Wege, die auf keiner eigenen Karte stehen.' },
+    { title: 'Den Küstenbund beschwören', reward: '+12,5 % Spähertempo', detail: 'Ein Lotse begleitet den Späher für den Rest dieses Durchlaufs.' },
+  ] : [
+    { title: 'Das Waldgeschenk annehmen', reward: '+8 Holz', detail: 'Ein sicherer Vorrat für die nächsten Bauvorhaben.' },
+    { title: 'Den Wildpfaden folgen', reward: 'Ein weiterer Weltort wird enthüllt', detail: 'Die Mooshüter zeigen einen verborgenen Pfad durch das Land.' },
+    { title: 'Den Hain-Eid leisten', reward: '+1 Holz je Fällgang', detail: 'Ein dauerhafter Segen für alle Holzfäller dieses Runs.' },
+  ];
+  return {
+    siteId: site.id,
+    eyebrow: `Begegnung · ${meta.faction}`,
+    title: meta.name,
+    intro: site.kind === WorldSiteKind.Ruin
+      ? 'Unter dem geborstenen Tor antwortet etwas auf das Licht deiner Laterne. Nur ein Weg bleibt dir offen.'
+      : 'Die Fremden erwarten eine klare Absicht. Deine Wahl gilt für diesen Durchlauf und kann nicht zurückgenommen werden.',
+    choices,
+  };
+}
+
+function currentEncounterResult(): HudObjective | null {
+  let site: WorldSite | null = null;
+  for (const candidate of world.state.run.sites) {
+    if (candidate.resolvedTick < 0) continue;
+    if (!site || candidate.resolvedTick > site.resolvedTick) site = candidate;
+  }
+  if (!site || world.state.tick - site.resolvedTick > 420) return null;
+  const meta = SITE_META[site.kind];
+  const rewards = site.kind === WorldSiteKind.Ruin
+    ? ['Bretter und Stein geborgen', 'Eine ferne Landmarke enthüllt', 'Relikt: größere Sichtweite'][site.resolvedChoice]
+    : site.kind === WorldSiteKind.Tidewatch
+      ? ['Fisch und Bretter erhalten', 'Eine ferne Landmarke enthüllt', 'Bund: schnellerer Späher'][site.resolvedChoice]
+      : ['Holzvorrat erhalten', 'Eine ferne Landmarke enthüllt', 'Segen: ergiebigere Fällgänge'][site.resolvedChoice];
+  return {
+    eyebrow: `Entscheidung · ${meta.faction}`,
+    title: rewards ?? `${meta.name} abgeschlossen`,
+    reason: site.resolvedChoice === 2
+      ? 'Dieser Segen bleibt bis zum Ende des aktuellen Durchlaufs bestehen.'
+      : 'Die Folgen dieser Entscheidung sind nun Teil dieses Durchlaufs.',
+    progress: 1,
+  };
+}
 
 function currentWorldNotice(): HudObjective | null {
   let site: WorldSite | null = null;

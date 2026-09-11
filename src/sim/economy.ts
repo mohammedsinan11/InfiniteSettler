@@ -18,6 +18,7 @@ import { Tile } from './terrain';
 import {
   BASE_SETTLERS,
   BUILDING_SPECS,
+  BuildingType,
   FOODS,
   FOOD_TICKS,
   CARRIER_SPEED,
@@ -138,7 +139,7 @@ export function stepProduction(world: World): void {
       if (spec.consumes >= 0) {
         if (b.input[spec.consumes] < 1) continue;
         b.input[spec.consumes]--;
-      } else if (spec.harvestTile >= 0 && findHarvest(world, b) === null) {
+      } else if (spec.harvestTile >= 0 && harvestTarget(world, b) === null) {
         continue; // keine Rohstoffkachel mehr in Reichweite
       }
       b.progress = 0;
@@ -149,7 +150,7 @@ export function stepProduction(world: World): void {
     if (b.progress < spec.workTicks) continue;
 
     if (spec.harvestTile >= 0) {
-      const source = findHarvest(world, b);
+      const source = harvestTarget(world, b);
       if (source === null) {
         b.progress = spec.workTicks; // blockiert, bis wieder Rohstoff da ist
         continue;
@@ -160,8 +161,11 @@ export function stepProduction(world: World): void {
     }
     // Ein Umschlagplatz legt sein Erzeugnis gleich in den Bestand: dort
     // greifen Traeger und Schiffe darauf zu, im Ausgangspuffer nicht.
-    if (spec.isSink) b.input[spec.produces]++;
-    else b.output[spec.produces]++;
+    const amount = b.type === BuildingType.Woodcutter
+      ? 1 + world.state.run.bonuses.woodYield
+      : 1;
+    if (spec.isSink) b.input[spec.produces] += amount;
+    else b.output[spec.produces] += amount;
     b.progress = -1;
   }
 }
@@ -170,7 +174,7 @@ export function stepProduction(world: World): void {
  * Naechste Rohstoffkachel im Radius. Feste Scanreihenfolge und Auswahl nach
  * (Abstand, y, x) - damit ist die Wahl bei gleichem Zustand immer dieselbe.
  */
-function findHarvest(world: World, b: Building): [number, number] | null {
+export function harvestTarget(world: World, b: Building): [number, number] | null {
   const spec = BUILDING_SPECS[b.type];
   const want = spec.harvestTile;
   const r = spec.harvestRadius;

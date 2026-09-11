@@ -17,11 +17,12 @@ export type ShoreSprite = keyof typeof manifest.shore;
 export type ShipDirection = keyof typeof manifest.ship;
 export type HarborDirection = keyof typeof manifest.smallHarbor;
 export type CarrierDirection = keyof typeof manifest.carrier;
+export type TreeBiome = keyof typeof manifest.trees;
 
 export interface GameAssets {
   terrain: Record<TerrainSprite, HTMLImageElement[]>;
   buildings: Record<number, HTMLImageElement[]>;
-  trees: HTMLImageElement[];
+  trees: Record<TreeBiome, HTMLImageElement[]>;
   resources: Record<ResourceSprite, HTMLImageElement[]>;
   /** Warensymbole fuer die Anzeige - nicht jede Ware hat eines. */
   goods: Record<GoodSprite, HTMLImageElement[]>;
@@ -77,7 +78,7 @@ async function loadGroup(paths: readonly string[]): Promise<HTMLImageElement[]> 
 }
 
 export async function loadGameAssets(): Promise<GameAssets> {
-  const [terrainEntries, buildingEntries, treeImages, resourceEntries, goodEntries, scatterEntries, shoreEntries, carrierEntries, shipEntries, smallHarborEntries] =
+  const [terrainEntries, buildingEntries, treeEntries, resourceEntries, goodEntries, scatterEntries, shoreEntries, carrierEntries, shipEntries, smallHarborEntries] =
     await Promise.all([
       Promise.all(
         Object.entries(manifest.terrain).map(async ([name, paths]) =>
@@ -87,7 +88,10 @@ export async function loadGameAssets(): Promise<GameAssets> {
         Object.entries(manifest.buildings).map(async ([name, paths]) =>
           [name, await loadGroup(paths)] as const),
       ),
-      loadGroup(manifest.trees),
+      Promise.all(
+        Object.entries(manifest.trees).map(async ([name, paths]) =>
+          [name, await loadGroup(paths)] as const),
+      ),
       Promise.all(
         Object.entries(manifest.resources).map(async ([name, paths]) =>
           [name, await loadGroup(paths)] as const),
@@ -135,6 +139,7 @@ export async function loadGameAssets(): Promise<GameAssets> {
     [BuildingType.Bakery]: namedBuildings.bakery ?? [],
   };
   const resources = Object.fromEntries(resourceEntries) as GameAssets['resources'];
+  const trees = Object.fromEntries(treeEntries) as GameAssets['trees'];
   const goods = Object.fromEntries(goodEntries) as GameAssets['goods'];
   const scatter = Object.fromEntries(scatterEntries) as GameAssets['scatter'];
   const shore = Object.fromEntries(shoreEntries) as GameAssets['shore'];
@@ -145,7 +150,7 @@ export async function loadGameAssets(): Promise<GameAssets> {
   const all = [
     ...Object.values(terrain).flat(),
     ...Object.values(buildings).flat(),
-    ...treeImages,
+    ...Object.values(trees).flat(),
     ...Object.values(resources).flat(),
     ...Object.values(goods).flat(),
     ...Object.values(scatter).flat(),
@@ -158,7 +163,7 @@ export async function loadGameAssets(): Promise<GameAssets> {
   const expected =
     Object.values(manifest.terrain).reduce((n, paths) => n + paths.length, 0) +
     Object.values(manifest.buildings).reduce((n, paths) => n + paths.length, 0) +
-    manifest.trees.length +
+    Object.values(manifest.trees).reduce((n, paths) => n + paths.length, 0) +
     Object.values(manifest.resources).reduce((n, paths) => n + paths.length, 0) +
     Object.values(manifest.goods).reduce((n, paths) => n + paths.length, 0) +
     Object.values(manifest.scatter).reduce((n, paths) => n + paths.length, 0) +
@@ -170,7 +175,7 @@ export async function loadGameAssets(): Promise<GameAssets> {
   return {
     terrain,
     buildings,
-    trees: treeImages,
+    trees,
     resources,
     goods,
     scatter,
@@ -203,7 +208,7 @@ export function emptyGameAssets(): GameAssets {
       [BuildingType.Mill]: [],
       [BuildingType.Bakery]: [],
     },
-    trees: [],
+    trees: { temperate: [], conifer: [], snow: [] },
     resources: { stone: [], mountain: [] },
     goods: { wood: [], plank: [], stone: [], fish: [], grain: [], flour: [], bread: [] },
     scatter: { flowers: [], bushes: [], saplings: [] },

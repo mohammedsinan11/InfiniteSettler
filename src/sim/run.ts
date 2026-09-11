@@ -91,6 +91,7 @@ export function beginExpedition(world: World): void {
     landing: null,
     sites: [],
     wanderers: [],
+    bonuses: { scoutVision: 0, scoutSpeed: 0, woodYield: 0 },
   };
   revealAround(run, x, y, EXPEDITION_REVEAL_RADIUS);
   world.state.run = run;
@@ -266,18 +267,18 @@ function stepScout(world: World): void {
   const run = world.state.run;
   const scout = run.scout;
   if (!run.fogEnabled || !scout) return;
-  moveScout(scout);
+  moveScout(scout, run.bonuses.scoutSpeed);
   const rx = Math.round(scout.x / FP_ONE);
   const ry = Math.round(scout.y / FP_ONE);
   if (rx !== scout.lastRevealX || ry !== scout.lastRevealY) {
     scout.lastRevealX = rx;
     scout.lastRevealY = ry;
-    revealAround(run, rx, ry, SCOUT_REVEAL_RADIUS);
+    revealAround(run, rx, ry, SCOUT_REVEAL_RADIUS + run.bonuses.scoutVision);
   }
 }
 
-function moveScout(scout: Scout): void {
-  let budget = CARRIER_SPEED;
+function moveScout(scout: Scout, speedBonus = 0): void {
+  let budget = CARRIER_SPEED + speedBonus * (CARRIER_SPEED >> 3);
   while (budget > 0 && scout.pathIdx < scout.path.length / 2) {
     const tx = scout.path[scout.pathIdx * 2] * FP_ONE;
     const ty = scout.path[scout.pathIdx * 2 + 1] * FP_ONE;
